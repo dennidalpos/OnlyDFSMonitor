@@ -34,6 +34,17 @@ dotnet run --project src/DfsMonitor.Web
 - `GET /api/report/latest.json`
 - `GET /api/report/latest.csv`
 
+## Script utili
+```bash
+# Linux/macOS
+./scripts/clean-build.sh
+RUN_TESTS=1 ./scripts/clean-build.sh
+
+# PowerShell (Windows)
+powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1
+powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -RunTests
+```
+
 ## Authentication
 Web/API uses Negotiate auth (`Microsoft.AspNetCore.Authentication.Negotiate`).
 
