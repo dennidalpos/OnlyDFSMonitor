@@ -18,6 +18,9 @@ builder.Services.AddSerilog();
 builder.Services.AddSingleton<ICollectorOrchestrator, CollectorOrchestrator>();
 builder.Services.AddSingleton<IDfsNamespaceCollector, DfsNamespaceCollector>();
 builder.Services.AddSingleton<IDfsReplicationCollector, DfsReplicationCollector>();
+builder.Services.AddSingleton<IStatusStore, StatusStore>();
+builder.Services.AddSingleton<IRuntimeStateStore, RuntimeStateStore>();
+builder.Services.AddSingleton<ICommandQueue, FileCommandQueue>();
 builder.Services.AddHostedService<CollectionWorker>();
 
 var app = builder.Build();

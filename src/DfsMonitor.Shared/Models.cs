@@ -18,6 +18,8 @@ public sealed class StorageOptions
     public string ConfigUncPath { get; set; } = @"\\fileserver\dfs-monitor\config\config.json";
     public string StatusUncRootPath { get; set; } = @"\\fileserver\dfs-monitor\status";
     public string LocalCacheRootPath { get; set; } = "cache";
+    public string RuntimeStatePath { get; set; } = "runtime-state.json";
+    public string CommandQueuePath { get; set; } = "commands";
 }
 
 public sealed class CollectionOptions
@@ -119,4 +121,29 @@ public sealed class DfsrConnectionSnapshot
     public int? BacklogCount { get; set; }
     public string BacklogState { get; set; } = "Unknown";
     public string? Details { get; set; }
+}
+
+public sealed class RuntimeState
+{
+    public bool IsCollectorRunning { get; set; }
+    public DateTimeOffset? LastStartedUtc { get; set; }
+    public DateTimeOffset? LastCompletedUtc { get; set; }
+    public string? LastResult { get; set; }
+    public string? LastError { get; set; }
+    public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class CollectNowCommand
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string RequestedBy { get; set; } = "api";
+    public string? Reason { get; set; }
+    public DateTimeOffset RequestedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}
+
+public sealed class ServiceControlResult
+{
+    public string ServiceName { get; set; } = "DfsMonitor.Service";
+    public string ServiceStatus { get; set; } = "Unknown";
+    public RuntimeState Runtime { get; set; } = new();
 }

@@ -1,12 +1,12 @@
 # DFS Monitor (.NET 8)
 
-Centralized Windows Server 2022 monitoring for DFS Namespaces and DFS Replication.
+Centralized Windows Server 2022 monitoring for DFS Namespaces (DFS-N) and DFS Replication (DFS-R).
 
 ## Projects
-- `src/DfsMonitor.Shared`: shared models, JSON config, UNC-aware storage.
+- `src/DfsMonitor.Shared`: shared models, storage, runtime state, command queue.
 - `src/DfsMonitor.Service`: Windows Worker service collector.
 - `src/DfsMonitor.Web`: authenticated API + Razor pages UI.
-- `tests/DfsMonitor.Tests`: config/status storage tests.
+- `tests/DfsMonitor.Tests`: storage/runtime/queue tests.
 
 ## Build
 ```bash
@@ -21,14 +21,26 @@ dotnet run --project src/DfsMonitor.Service
 dotnet run --project src/DfsMonitor.Web
 ```
 
+## Implemented API
+- `GET /api/health`
+- `GET/PUT /api/config`
+- `POST /api/collect/now` (queues file-based manual command consumed by service)
+- `GET /api/service/status`
+- `POST /api/service/start`
+- `POST /api/service/stop`
+- `GET /api/status/latest`
+- `GET /api/status/namespaces/{id}`
+- `GET /api/status/dfsr/{id}`
+- `GET /api/report/latest.json`
+- `GET /api/report/latest.csv`
+
 ## Authentication
 Web/API uses Negotiate auth (`Microsoft.AspNetCore.Authentication.Negotiate`).
-For non-domain dev, swap to JWT in `src/DfsMonitor.Web/Program.cs`.
 
 ## Permissions
 Run service under domain service account/gMSA with:
 - Read on DFS namespace/replication metadata.
-- WinRM remote query rights to DFS member servers.
+- WinRM/PowerShell remoting rights to DFS member servers where needed.
 - Read access to `DFS Replication` event log remotely.
 - RW on config and status UNC shares.
 

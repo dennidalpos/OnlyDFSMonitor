@@ -15,14 +15,22 @@
 - LDAP/AD DS ports if DFSN discovery via AD is required
 - HTTP/HTTPS port used by web app (Kestrel or behind IIS reverse proxy)
 
+## Operations
+- Trigger immediate collection: `POST /api/collect/now`.
+- Check service/runtime: `GET /api/service/status`.
+- Start/stop service remotely from UI or API:
+  - `POST /api/service/start`
+  - `POST /api/service/stop`
+
 ## Troubleshooting
 - Check service logs in `logs/service-*.log` and Windows Event Log source `DfsMonitor.Service`.
-- If UNC unavailable, verify local cache under configured `LocalCacheRootPath` and network share ACL.
+- If UNC unavailable, verify local cache under `LocalCacheRootPath` and pending sync files under `pending-sync`.
 - Validate DFS commands on collector host:
   - `Get-DfsnFolder -Path "\\domain\\namespace\\*"`
   - `Get-DfsnFolderTarget -Path "\\domain\\namespace\\folder"`
   - `Get-DfsReplicationGroup`
   - `Get-DfsrMember -GroupName <group>`
+  - `Get-DfsrBacklog -GroupName <group> -SourceComputerName <src> -DestinationComputerName <dst>`
   - `Get-WinEvent -LogName 'DFS Replication' -ComputerName <member> -MaxEvents 20`
 - Backlog fallback note:
-  - If `Get-DfsrBacklog`/`dfsrdiag backlog` is blocked, API exposes `BacklogState = Unknown` with detail string.
+  - If backlog retrieval is blocked, API sets `BacklogState = Unknown` with details.
