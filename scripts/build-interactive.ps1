@@ -25,14 +25,36 @@ function Ask-YesNo {
   }
 }
 
+function Resolve-SolutionPath {
+  param([string]$SolutionInput)
+
+  if ([System.IO.Path]::IsPathRooted($SolutionInput) -and (Test-Path $SolutionInput)) {
+    return (Resolve-Path $SolutionInput).Path
+  }
+
+  if (Test-Path $SolutionInput) {
+    return (Resolve-Path $SolutionInput).Path
+  }
+
+  $repoRoot = Split-Path -Path $PSScriptRoot -Parent
+  $fromRepoRoot = Join-Path $repoRoot $SolutionInput
+  if (Test-Path $fromRepoRoot) {
+    return (Resolve-Path $fromRepoRoot).Path
+  }
+
+  throw "Soluzione non trovata: $SolutionInput (cwd: $(Get-Location), repoRoot: $repoRoot)"
+}
+
 function Ask-NonEmpty {
   param(
     [string]$Prompt,
     [string]$Default = ""
   )
 
+  $promptLabel = if ([string]::IsNullOrWhiteSpace($Default)) { $Prompt } else { "{0} [{1}]" -f $Prompt, $Default }
+
   while ($true) {
-    $value = Read-Host "$Prompt$(if ($Default) { " [$Default]" } else { "" })"
+    $value = Read-Host $promptLabel
     if ([string]::IsNullOrWhiteSpace($value)) {
       if (-not [string]::IsNullOrWhiteSpace($Default)) { return $Default }
       Write-Host "Il valore non può essere vuoto." -ForegroundColor Yellow
@@ -56,10 +78,8 @@ if (-not $dotnetCmd) {
   throw "Installare .NET SDK 8.x e rieseguire lo script."
 }
 
-$solution = Ask-NonEmpty "Percorso soluzione" $DefaultSolution
-if (-not (Test-Path $solution)) {
-  throw "Soluzione non trovata: $solution"
-}
+$solutionInput = Ask-NonEmpty "Percorso soluzione" $DefaultSolution
+$solution = Resolve-SolutionPath $solutionInput
 
 $configuration = Ask-NonEmpty "Configurazione build (Debug/Release)" "Release"
 $runRestore = Ask-YesNo "Eseguire restore?" $true
@@ -67,7 +87,7 @@ $runClean = Ask-YesNo "Eseguire clean?" $true
 $runBuild = Ask-YesNo "Eseguire build?" $true
 $runTests = Ask-YesNo "Eseguire test?" $true
 
-Write-Host "\nRiepilogo:" -ForegroundColor Cyan
+Write-Host "`nRiepilogo:" -ForegroundColor Cyan
 Write-Host "- Soluzione: $solution"
 Write-Host "- Configurazione: $configuration"
 Write-Host "- Restore: $runRestore"
@@ -81,20 +101,20 @@ if (-not (Ask-YesNo "Confermi esecuzione?" $true)) {
 }
 
 if ($runRestore) {
-  Write-Host "\n[step] dotnet restore $solution" -ForegroundColor Green
-  dotnet restore $solution
+  Write-Host "`n[step] dotnet restore $solution" -ForegroundColor Green
+  & dotnet restore $solution
 }
 
 if ($runClean) {
-  Write-Host "\n[step] dotnet clean $solution -c $configuration" -ForegroundColor Green
-  dotnet clean $solution -c $configuration
+  Write-Host "`n[step] dotnet clean $solution -c $configuration" -ForegroundColor Green
+  & dotnet clean $solution -c $configuration
 }
 
 if ($runBuild) {
   $buildArgs = @("build", $solution, "-c", $configuration)
   if ($runRestore) { $buildArgs += "--no-restore" }
-  Write-Host "\n[step] dotnet $($buildArgs -join ' ')" -ForegroundColor Green
-  dotnet @buildArgs
+  Write-Host "`n[step] dotnet $($buildArgs -join ' ')" -ForegroundColor Green
+  & dotnet @buildArgs
 }
 
 if ($runTests) {
@@ -102,8 +122,8 @@ if ($runTests) {
   if ($runBuild) { $testArgs += "--no-build" }
   elseif ($runRestore) { $testArgs += "--no-restore" }
 
-  Write-Host "\n[step] dotnet $($testArgs -join ' ')" -ForegroundColor Green
-  dotnet @testArgs
+  Write-Host "`n[step] dotnet $($testArgs -join ' ')" -ForegroundColor Green
+  & dotnet @testArgs
 }
 
-Write-Host "\nBuild interattiva completata con successo." -ForegroundColor Cyan
+Write-Host "`nBuild interattiva completata con successo." -ForegroundColor Cyan
