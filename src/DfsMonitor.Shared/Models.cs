@@ -92,6 +92,7 @@ public sealed class NamespaceTargetSnapshot
     public string PriorityClass { get; set; } = "Unknown";
     public int? PriorityRank { get; set; }
     public int? Ordering { get; set; }
+    public string? State { get; set; }
     public bool Reachable { get; set; }
     public long? LatencyMs { get; set; }
     public string? LastError { get; set; }

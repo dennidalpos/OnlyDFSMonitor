@@ -1,3 +1,6 @@
+@page
+@model DfsMonitor.Web.Pages.IndexModel
+
 <html>
 <head>
   <title>DFS Monitor</title>
@@ -49,7 +52,7 @@ async function load(){
 
   if(!statusResp.ok){ document.getElementById('health').textContent='No status snapshot found'; return; }
   const data = await statusResp.json();
-  document.getElementById('health').textContent = `Overall: ${data.overallHealth} @ ${data.createdAtUtc}`;
+  document.getElementById('health').textContent = `Overall: ${data.overallHealth} @@ ${data.createdAtUtc}`;
 
   const tb = document.querySelector('#targets tbody'); tb.innerHTML = '';
   for(const n of data.namespaces){

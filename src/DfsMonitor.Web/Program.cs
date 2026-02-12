@@ -3,11 +3,40 @@ using System.ServiceProcess;
 using System.Text;
 using CsvHelper;
 using DfsMonitor.Shared;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.Negotiate;
+using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
+var authMode = builder.Configuration["Auth:Mode"] ?? "Negotiate";
 
-builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+if (authMode.Equals("Jwt", StringComparison.OrdinalIgnoreCase))
+{
+    var issuer = builder.Configuration["Auth:Jwt:Issuer"] ?? "dfs-monitor";
+    var audience = builder.Configuration["Auth:Jwt:Audience"] ?? "dfs-monitor-api";
+    var key = builder.Configuration["Auth:Jwt:SigningKey"] ?? "dev-placeholder-signing-key-change-me";
+
+    builder.Services
+        .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateIssuerSigningKey = true,
+                ValidateLifetime = true,
+                ValidIssuer = issuer,
+                ValidAudience = audience,
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key))
+            };
+        });
+}
+else
+{
+    builder.Services.AddAuthentication(NegotiateDefaults.AuthenticationScheme).AddNegotiate();
+}
+
 builder.Services.AddAuthorization();
 builder.Services.AddRazorPages();
 
@@ -25,6 +54,19 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapRazorPages();
+
+app.MapGet("/api/auth/jwt-placeholder", (IConfiguration configuration) =>
+{
+    var issuer = configuration["Auth:Jwt:Issuer"] ?? "dfs-monitor";
+    var audience = configuration["Auth:Jwt:Audience"] ?? "dfs-monitor-api";
+    return Results.Ok(new
+    {
+        tokenType = "Bearer",
+        message = "JWT mode is enabled. Integrate your identity provider to mint tokens using Auth:Jwt settings.",
+        issuer,
+        audience
+    });
+}).AllowAnonymous();
 
 app.MapGet("/api/health", async (IStatusStore statusStore, UncConfigStore configStore, IRuntimeStateStore runtimeStateStore) =>
 {
@@ -63,35 +105,13 @@ app.MapGet("/api/service/status", async (UncConfigStore configStore, IRuntimeSta
 {
     var cfg = await configStore.LoadAsync();
     var runtime = await runtimeStateStore.LoadAsync(cfg.Storage.LocalCacheRootPath, cfg.Storage.RuntimeStatePath);
-    var status = GetServiceStatus();
-    return Results.Ok(new ServiceControlResult { ServiceStatus = status, Runtime = runtime });
+    var result = ServiceControlApi.GetStatus();
+    result.Runtime = runtime;
+    return Results.Ok(result);
 }).RequireAuthorization();
 
-app.MapPost("/api/service/start", () =>
-{
-    TryControlService(controller =>
-    {
-        if (controller.Status == ServiceControllerStatus.Stopped || controller.Status == ServiceControllerStatus.StopPending)
-        {
-            controller.Start();
-            controller.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
-        }
-    });
-    return Results.Accepted();
-}).RequireAuthorization();
-
-app.MapPost("/api/service/stop", () =>
-{
-    TryControlService(controller =>
-    {
-        if (controller.Status == ServiceControllerStatus.Running || controller.Status == ServiceControllerStatus.StartPending)
-        {
-            controller.Stop();
-            controller.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(20));
-        }
-    });
-    return Results.Accepted();
-}).RequireAuthorization();
+app.MapPost("/api/service/start", () => ServiceControlApi.Start()).RequireAuthorization();
+app.MapPost("/api/service/stop", () => ServiceControlApi.Stop()).RequireAuthorization();
 
 app.MapGet("/api/status/latest", async (IStatusStore statusStore, UncConfigStore configStore) =>
 {
@@ -141,6 +161,7 @@ app.MapGet("/api/report/latest.csv", async (IStatusStore statusStore, UncConfigS
     csv.WriteField("PriorityClass");
     csv.WriteField("PriorityRank");
     csv.WriteField("Ordering");
+    csv.WriteField("State");
     csv.NextRecord();
 
     foreach (var ns in latest.Namespaces)
@@ -155,6 +176,7 @@ app.MapGet("/api/report/latest.csv", async (IStatusStore statusStore, UncConfigS
         csv.WriteField(target.PriorityClass);
         csv.WriteField(target.PriorityRank);
         csv.WriteField(target.Ordering);
+        csv.WriteField(target.State);
         csv.NextRecord();
     }
 
@@ -164,23 +186,73 @@ app.MapGet("/api/report/latest.csv", async (IStatusStore statusStore, UncConfigS
 
 app.Run();
 
-static string GetServiceStatus()
+internal static class ServiceControlApi
 {
-    if (!OperatingSystem.IsWindows()) return "Unsupported on non-Windows";
-    try
+    public static ServiceControlResult GetStatus()
     {
-        using var controller = new ServiceController("DfsMonitor.Service");
-        return controller.Status.ToString();
-    }
-    catch (Exception ex)
-    {
-        return $"Unknown ({ex.Message})";
-    }
-}
+        if (!OperatingSystem.IsWindows())
+        {
+            return new ServiceControlResult { ServiceStatus = "Unsupported on non-Windows" };
+        }
 
-static void TryControlService(Action<ServiceController> action)
-{
-    if (!OperatingSystem.IsWindows()) return;
-    using var controller = new ServiceController("DfsMonitor.Service");
-    action(controller);
+        try
+        {
+            using var controller = new ServiceController("DfsMonitor.Service");
+            return new ServiceControlResult { ServiceStatus = controller.Status.ToString() };
+        }
+        catch (Exception ex)
+        {
+            return new ServiceControlResult { ServiceStatus = $"Unknown ({ex.Message})" };
+        }
+    }
+
+    public static IResult Start()
+    {
+        return ControlService(
+            shouldRun: status => status is ServiceControllerStatus.Stopped or ServiceControllerStatus.StopPending,
+            mutate: controller => controller.Start(),
+            target: ServiceControllerStatus.Running,
+            action: "start");
+    }
+
+    public static IResult Stop()
+    {
+        return ControlService(
+            shouldRun: status => status is ServiceControllerStatus.Running or ServiceControllerStatus.StartPending,
+            mutate: controller => controller.Stop(),
+            target: ServiceControllerStatus.Stopped,
+            action: "stop");
+    }
+
+    private static IResult ControlService(Func<ServiceControllerStatus, bool> shouldRun, Action<ServiceController> mutate, ServiceControllerStatus target, string action)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return Results.Problem(statusCode: StatusCodes.Status501NotImplemented, title: $"Service {action} is unsupported on non-Windows hosts.");
+        }
+
+        try
+        {
+            using var controller = new ServiceController("DfsMonitor.Service");
+            if (shouldRun(controller.Status))
+            {
+                mutate(controller);
+                controller.WaitForStatus(target, TimeSpan.FromSeconds(20));
+            }
+
+            return Results.Ok(new ServiceControlResult { ServiceStatus = controller.Status.ToString() });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "DfsMonitor.Service was not found.", detail: ex.Message);
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status403Forbidden, title: $"Service {action} failed due to permissions.", detail: ex.Message);
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: $"Unexpected error while trying to {action} DfsMonitor.Service.", detail: ex.Message);
+        }
+    }
 }

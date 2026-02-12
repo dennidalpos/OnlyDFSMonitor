@@ -35,14 +35,13 @@ dotnet run --project src/DfsMonitor.Web
 - `GET /api/report/latest.csv`
 
 ## Script utili
-```bash
-# Linux/macOS
-./scripts/clean-build.sh
-RUN_TESTS=1 ./scripts/clean-build.sh
-
-# PowerShell (Windows)
+```powershell
+# Build non-interattiva
 powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1
 powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -RunTests
+
+# Build guidata interattiva (richiede input in console)
+powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1
 ```
 
 ## Authentication

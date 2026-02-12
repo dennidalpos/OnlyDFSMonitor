@@ -13,20 +13,32 @@ Contesto progetto:
 
 Stato attuale (già implementato):
 - Config/snapshot storage con fallback locale + lock file + versioning backup
-- Runtime state e command queue file-based per collect-now
-- API + UI con autenticazione Negotiate
-- Collector DFS-N e DFS-R best effort via PowerShell
-- Endpoint API principali e report JSON/CSV
+- Runtime state + command queue file-based per collect-now
+- collect-now immediato in worker tramite signal/event (watcher su queue)
+- Collector DFS-N con ordering più semantico (stato + priority class + rank)
+- Collector DFS-R backlog su connessioni reali (`Get-DfsrConnection`) con fallback resiliente
+- API + UI principali, report JSON/CSV, configurazione estesa (retry/thresholds/event sample/storage paths/DFSR groups)
+- Autenticazione Negotiate + modalità JWT placeholder configurabile
+- Endpoint start/stop servizio con error handling esplicito su non-Windows
+- Test integrazione orchestrator + build/test eseguiti su runner con dotnet
 
-Problemi/gap da completare con priorità:
-1) Rendere `collect-now` realmente immediato (interrompere attesa del loop o usare signal/event).
-2) DFS-R backlog basato su connessioni reali (non su pairing adiacente membri).
-3) Migliorare semanticamente `ordering` DFS-N (non usare solo `State` come proxy).
-4) Completare UI configurazione con tutti i campi (retry, thresholds, event sample, gruppi DFS-R/autodiscovery).
-5) Aggiungere modalità auth alternativa (JWT placeholder configurabile) oltre a Negotiate.
-6) Migliorare endpoint service start/stop con error handling esplicito su ambienti non-Windows.
-7) Aggiungere test integrazione API/collector/orchestrazione.
-8) Eseguire build/test su runner con dotnet installato e riportare risultati.
+TODO rimanenti (priorità):
+1) Aggiungere integration test API end-to-end (host web in-memory) con copertura auth, collect-now e endpoint status/report.
+2) Rafforzare collector DFS-R per folder-level backlog (non solo group-level), con isolamento errori per connessione/member.
+3) Migliorare robustezza cross-platform:
+   - guard/suppress CA1416 in punti Windows-only con branch espliciti + test dedicati
+   - evitare crash su config path UNC non disponibile in ambienti Linux/dev
+4) Rendere più robusta la UI Config:
+   - validazione campi client/server
+   - preservare namespace IDs esistenti invece di rigenerarli sempre
+   - UX per gestione gruppi DFS-R (add/remove dedicati)
+5) Definire strategia operativa JWT reale (integrazione IdP, token issuance, claims/roles e policy auth).
+6) Migliorare logging strutturato:
+   - correlation id per ciclo collection / collect-now
+   - metriche base (durata collector, success/fail per host, backlog unknown rate)
+7) Documentazione operativa aggiuntiva:
+   - runbook di migrazione da Negotiate a JWT
+   - troubleshooting dedicato per WinRM/CIM timeout e permessi DFS cmdlets
 
 Vincoli:
 - Non installare agent sui DFS server.

@@ -11,7 +11,7 @@ builder.Logging.AddEventLog(new EventLogSettings { SourceName = "DfsMonitor.Serv
 Log.Logger = new LoggerConfiguration()
     .Enrich.FromLogContext()
     .WriteTo.File("logs/service-.log", rollingInterval: RollingInterval.Day)
-    .WriteTo.EventLog("Application", source: "DfsMonitor.Service", manageEventSource: true)
+    .WriteTo.EventLog(source: "DfsMonitor.Service", manageEventSource: true)
     .CreateLogger();
 builder.Services.AddSerilog();
 
