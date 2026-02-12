@@ -6,7 +6,7 @@ Centralized Windows Server 2022 monitoring for DFS Namespaces (DFS-N) and DFS Re
 - `src/DfsMonitor.Shared`: shared models, storage, runtime state, command queue.
 - `src/DfsMonitor.Service`: Windows Worker service collector.
 - `src/DfsMonitor.Web`: authenticated API + Razor pages UI.
-- `tests/DfsMonitor.Tests`: storage/runtime/queue tests.
+- `tests/DfsMonitor.Tests`: unit + integration tests (storage/runtime/queue, orchestrator, Web API in-memory).
 
 ## Build
 ```bash
@@ -45,7 +45,9 @@ powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1
 ```
 
 ## Authentication
-Web/API uses Negotiate auth (`Microsoft.AspNetCore.Authentication.Negotiate`).
+Web/API supports two modes:
+- `Negotiate` (default) via `Microsoft.AspNetCore.Authentication.Negotiate`
+- `Jwt` placeholder mode (configurable `Auth:Jwt:*`) for integration with external IdP
 
 ## Permissions
 Run service under domain service account/gMSA with:
