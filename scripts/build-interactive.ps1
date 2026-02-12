@@ -25,6 +25,26 @@ function Ask-YesNo {
   }
 }
 
+function Resolve-SolutionPath {
+  param([string]$SolutionInput)
+
+  if ([System.IO.Path]::IsPathRooted($SolutionInput) -and (Test-Path $SolutionInput)) {
+    return (Resolve-Path $SolutionInput).Path
+  }
+
+  if (Test-Path $SolutionInput) {
+    return (Resolve-Path $SolutionInput).Path
+  }
+
+  $repoRoot = Split-Path -Path $PSScriptRoot -Parent
+  $fromRepoRoot = Join-Path $repoRoot $SolutionInput
+  if (Test-Path $fromRepoRoot) {
+    return (Resolve-Path $fromRepoRoot).Path
+  }
+
+  throw "Soluzione non trovata: $SolutionInput (cwd: $(Get-Location), repoRoot: $repoRoot)"
+}
+
 function Ask-NonEmpty {
   param(
     [string]$Prompt,
@@ -58,10 +78,8 @@ if (-not $dotnetCmd) {
   throw "Installare .NET SDK 8.x e rieseguire lo script."
 }
 
-$solution = Ask-NonEmpty "Percorso soluzione" $DefaultSolution
-if (-not (Test-Path $solution)) {
-  throw "Soluzione non trovata: $solution"
-}
+$solutionInput = Ask-NonEmpty "Percorso soluzione" $DefaultSolution
+$solution = Resolve-SolutionPath $solutionInput
 
 $configuration = Ask-NonEmpty "Configurazione build (Debug/Release)" "Release"
 $runRestore = Ask-YesNo "Eseguire restore?" $true
