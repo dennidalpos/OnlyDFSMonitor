@@ -5,14 +5,22 @@ using Serilog;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-builder.Services.AddWindowsService();
-builder.Logging.AddEventLog(new EventLogSettings { SourceName = "DfsMonitor.Service" });
+if (OperatingSystem.IsWindows())
+{
+    builder.Services.AddWindowsService();
+    builder.Logging.AddEventLog(new EventLogSettings { SourceName = "DfsMonitor.Service" });
+}
 
-Log.Logger = new LoggerConfiguration()
+var loggerConfiguration = new LoggerConfiguration()
     .Enrich.FromLogContext()
-    .WriteTo.File("logs/service-.log", rollingInterval: RollingInterval.Day)
-    .WriteTo.EventLog(source: "DfsMonitor.Service", manageEventSource: true)
-    .CreateLogger();
+    .WriteTo.File("logs/service-.log", rollingInterval: RollingInterval.Day);
+
+if (OperatingSystem.IsWindows())
+{
+    loggerConfiguration = loggerConfiguration.WriteTo.EventLog(source: "DfsMonitor.Service", manageEventSource: true);
+}
+
+Log.Logger = loggerConfiguration.CreateLogger();
 builder.Services.AddSerilog();
 
 builder.Services.AddSingleton<ICollectorOrchestrator, CollectorOrchestrator>();

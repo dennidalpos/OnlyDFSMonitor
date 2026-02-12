@@ -1,16 +1,18 @@
-using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Claims;
-using System.Text;
+using System.Text.Encodings.Web;
 using DfsMonitor.Shared;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.Testing;
-using Microsoft.Extensions.Configuration;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace DfsMonitor.Tests;
 
@@ -71,21 +73,20 @@ public class WebApiIntegrationTests
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Development");
-            builder.ConfigureAppConfiguration((_, config) =>
-            {
-                config.AddInMemoryCollection(new Dictionary<string, string?>
-                {
-                    ["Auth:Mode"] = "Jwt",
-                    ["Auth:Jwt:Issuer"] = TestWebAppFixture.JwtIssuer,
-                    ["Auth:Jwt:Audience"] = TestWebAppFixture.JwtAudience,
-                    ["Auth:Jwt:SigningKey"] = TestWebAppFixture.JwtKey
-                });
-            });
 
-            builder.ConfigureServices(services =>
+            builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<UncConfigStore>();
                 services.AddSingleton(new UncConfigStore(configPath, localCachePath));
+
+                services.AddAuthentication(options =>
+                    {
+                        options.DefaultAuthenticateScheme = TestAuthHandler.Scheme;
+                        options.DefaultChallengeScheme = TestAuthHandler.Scheme;
+                    })
+                    .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.Scheme, _ =>
+                    {
+                    });
             });
 
             builder.UseContentRoot(tempRoot);
@@ -94,10 +95,6 @@ public class WebApiIntegrationTests
 
     private sealed class TestWebAppFixture : IAsyncDisposable
     {
-        public const string JwtIssuer = "dfs-monitor-tests";
-        public const string JwtAudience = "dfs-monitor-tests-api";
-        public const string JwtKey = "integration-tests-signing-key-32-bytes";
-
         private readonly string _tempRoot;
 
         private TestWebAppFixture(string tempRoot, string localCachePath, string configPath, TestWebAppFactory factory)
@@ -189,8 +186,7 @@ public class WebApiIntegrationTests
         public HttpClient CreateAuthorizedClient()
         {
             var client = Factory.CreateClient();
-            var token = CreateJwt();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(TestAuthHandler.Scheme, "test-user");
             return client;
         }
 
@@ -204,24 +200,42 @@ public class WebApiIntegrationTests
 
             return ValueTask.CompletedTask;
         }
+    }
 
-        private static string CreateJwt()
+    private sealed class TestAuthHandler(
+        IOptionsMonitor<AuthenticationSchemeOptions> options,
+        ILoggerFactory logger,
+        UrlEncoder encoder,
+        ISystemClock clock)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder, clock)
+    {
+        public const string Scheme = "Test";
+
+        protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
-            var creds = new SigningCredentials(
-                new SymmetricSecurityKey(Encoding.UTF8.GetBytes(JwtKey)),
-                SecurityAlgorithms.HmacSha256);
+            var header = Request.Headers.Authorization.ToString();
+            if (string.IsNullOrWhiteSpace(header) || !header.StartsWith($"{Scheme} ", StringComparison.OrdinalIgnoreCase))
+            {
+                return Task.FromResult(AuthenticateResult.NoResult());
+            }
 
-            var token = new JwtSecurityToken(
-                issuer: JwtIssuer,
-                audience: JwtAudience,
-                claims:
-                [
-                    new Claim(ClaimTypes.Name, "test-user")
-                ],
-                expires: DateTime.UtcNow.AddMinutes(5),
-                signingCredentials: creds);
+            var userName = header.Substring(Scheme.Length).Trim();
+            if (string.IsNullOrWhiteSpace(userName))
+            {
+                userName = "test-user";
+            }
 
-            return new JwtSecurityTokenHandler().WriteToken(token);
+            var claims = new[] { new Claim(ClaimTypes.Name, userName) };
+            var identity = new ClaimsIdentity(claims, Scheme);
+            var principal = new ClaimsPrincipal(identity);
+            var ticket = new AuthenticationTicket(principal, Scheme);
+            return Task.FromResult(AuthenticateResult.Success(ticket));
+        }
+
+        protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+        {
+            Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return Task.CompletedTask;
         }
     }
 }

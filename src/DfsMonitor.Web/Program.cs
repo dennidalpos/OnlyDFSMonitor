@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.ServiceProcess;
+using System.Runtime.Versioning;
 using System.Text;
 using CsvHelper;
 using DfsMonitor.Shared;
@@ -197,6 +198,40 @@ internal static class ServiceControlApi
             return new ServiceControlResult { ServiceStatus = "Unsupported on non-Windows" };
         }
 
+        return GetStatusWindows();
+    }
+
+    public static IResult Start()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return Results.Problem(statusCode: StatusCodes.Status501NotImplemented, title: "Service start is unsupported on non-Windows hosts.");
+        }
+
+        return ControlServiceWindows(
+            shouldRun: status => status is ServiceControllerStatus.Stopped or ServiceControllerStatus.StopPending,
+            mutate: controller => controller.Start(),
+            target: ServiceControllerStatus.Running,
+            action: "start");
+    }
+
+    public static IResult Stop()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return Results.Problem(statusCode: StatusCodes.Status501NotImplemented, title: "Service stop is unsupported on non-Windows hosts.");
+        }
+
+        return ControlServiceWindows(
+            shouldRun: status => status is ServiceControllerStatus.Running or ServiceControllerStatus.StartPending,
+            mutate: controller => controller.Stop(),
+            target: ServiceControllerStatus.Stopped,
+            action: "stop");
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static ServiceControlResult GetStatusWindows()
+    {
         try
         {
             using var controller = new ServiceController("DfsMonitor.Service");
@@ -208,31 +243,9 @@ internal static class ServiceControlApi
         }
     }
 
-    public static IResult Start()
+    [SupportedOSPlatform("windows")]
+    private static IResult ControlServiceWindows(Func<ServiceControllerStatus, bool> shouldRun, Action<ServiceController> mutate, ServiceControllerStatus target, string action)
     {
-        return ControlService(
-            shouldRun: status => status is ServiceControllerStatus.Stopped or ServiceControllerStatus.StopPending,
-            mutate: controller => controller.Start(),
-            target: ServiceControllerStatus.Running,
-            action: "start");
-    }
-
-    public static IResult Stop()
-    {
-        return ControlService(
-            shouldRun: status => status is ServiceControllerStatus.Running or ServiceControllerStatus.StartPending,
-            mutate: controller => controller.Stop(),
-            target: ServiceControllerStatus.Stopped,
-            action: "stop");
-    }
-
-    private static IResult ControlService(Func<ServiceControllerStatus, bool> shouldRun, Action<ServiceController> mutate, ServiceControllerStatus target, string action)
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            return Results.Problem(statusCode: StatusCodes.Status501NotImplemented, title: $"Service {action} is unsupported on non-Windows hosts.");
-        }
-
         try
         {
             using var controller = new ServiceController("DfsMonitor.Service");
