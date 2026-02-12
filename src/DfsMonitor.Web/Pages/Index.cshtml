@@ -1,0 +1,82 @@
+<html>
+<head>
+  <title>DFS Monitor</title>
+  <style>
+    body { font-family: Arial; margin: 1.5rem; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; }
+    td, th { border: 1px solid #ccc; padding: .3rem; vertical-align: top; }
+    .row { display:flex; gap:1rem; }
+    .card { border:1px solid #ccc; padding:.75rem; min-width:18rem; }
+    button { margin-right:.4rem; }
+  </style>
+</head>
+<body>
+<h1>DFS Monitor Dashboard</h1>
+<p>
+  <a href="/config">Configuration</a>
+  <button onclick="collectNow()">Collect now</button>
+  <button onclick="startService()">Start service</button>
+  <button onclick="stopService()">Stop service</button>
+  <a href="/api/report/latest.json">Download JSON</a>
+  <a href="/api/report/latest.csv">Download CSV</a>
+</p>
+
+<div class="row">
+  <div class="card"><h3>Health</h3><div id="health">Loading...</div></div>
+  <div class="card"><h3>Service</h3><div id="service">Loading...</div></div>
+</div>
+
+<h2>DFS Namespaces / Targets</h2>
+<table id="targets">
+  <thead><tr><th>Namespace</th><th>Folder</th><th>Target</th><th>Server</th><th>Reachable</th><th>Priority</th><th>Rank</th><th>Order</th><th>Error</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<h2>DFS-R</h2>
+<table id="dfsr">
+  <thead><tr><th>Group</th><th>Member</th><th>Service</th><th>Health</th><th>Warnings</th><th>Backlog Links</th></tr></thead>
+  <tbody></tbody>
+</table>
+
+<script>
+async function load(){
+  const statusResp = await fetch('/api/status/latest');
+  const serviceResp = await fetch('/api/service/status');
+  if(serviceResp.ok){
+    const s = await serviceResp.json();
+    document.getElementById('service').textContent = `${s.serviceStatus} | running=${s.runtime.isCollectorRunning} | lastStart=${s.runtime.lastStartedUtc ?? '-'} | lastEnd=${s.runtime.lastCompletedUtc ?? '-'}`;
+  }
+
+  if(!statusResp.ok){ document.getElementById('health').textContent='No status snapshot found'; return; }
+  const data = await statusResp.json();
+  document.getElementById('health').textContent = `Overall: ${data.overallHealth} @ ${data.createdAtUtc}`;
+
+  const tb = document.querySelector('#targets tbody'); tb.innerHTML = '';
+  for(const n of data.namespaces){
+    for(const f of n.folders){
+      for(const t of f.targets){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${n.namespacePath}</td><td>${f.folderPath}</td><td>${t.uncPath}</td><td>${t.server}</td><td>${t.reachable}</td><td>${t.priorityClass}</td><td>${t.priorityRank ?? ''}</td><td>${t.ordering ?? ''}</td><td>${t.lastError ?? ''}</td>`;
+        tb.appendChild(tr);
+      }
+    }
+  }
+
+  const db = document.querySelector('#dfsr tbody'); db.innerHTML = '';
+  for(const g of data.dfsrGroups){
+    const backlog = (g.connections || []).map(c => `${c.sourceMember}->${c.destinationMember}: ${c.backlogState}${c.backlogCount!=null?` (${c.backlogCount})`:''}`).join('<br/>');
+    for(const m of g.members){
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${g.groupName}</td><td>${m.memberName}</td><td>${m.serviceState}</td><td>${m.health}</td><td>${(m.recentWarnings||[]).join('<hr/>')}</td><td>${backlog}</td>`;
+      db.appendChild(tr);
+    }
+  }
+}
+
+async function collectNow(){ await fetch('/api/collect/now',{method:'POST'}); setTimeout(load,1000); }
+async function startService(){ await fetch('/api/service/start',{method:'POST'}); setTimeout(load,1000); }
+async function stopService(){ await fetch('/api/service/stop',{method:'POST'}); setTimeout(load,1000); }
+
+load();
+</script>
+</body></html>
