@@ -81,10 +81,10 @@ public class WebApiIntegrationTests
 
                 services.AddAuthentication(options =>
                     {
-                        options.DefaultAuthenticateScheme = TestAuthHandler.Scheme;
-                        options.DefaultChallengeScheme = TestAuthHandler.Scheme;
+                        options.DefaultAuthenticateScheme = TestAuthHandler.SchemeName;
+                        options.DefaultChallengeScheme = TestAuthHandler.SchemeName;
                     })
-                    .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.Scheme, _ =>
+                    .AddScheme<AuthenticationSchemeOptions, TestAuthHandler>(TestAuthHandler.SchemeName, _ =>
                     {
                     });
             });
@@ -186,7 +186,7 @@ public class WebApiIntegrationTests
         public HttpClient CreateAuthorizedClient()
         {
             var client = Factory.CreateClient();
-            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(TestAuthHandler.Scheme, "test-user");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(TestAuthHandler.SchemeName, "test-user");
             return client;
         }
 
@@ -205,30 +205,29 @@ public class WebApiIntegrationTests
     private sealed class TestAuthHandler(
         IOptionsMonitor<AuthenticationSchemeOptions> options,
         ILoggerFactory logger,
-        UrlEncoder encoder,
-        ISystemClock clock)
-        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder, clock)
+        UrlEncoder encoder)
+        : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
     {
-        public const string Scheme = "Test";
+        public const string SchemeName = "Test";
 
         protected override Task<AuthenticateResult> HandleAuthenticateAsync()
         {
             var header = Request.Headers.Authorization.ToString();
-            if (string.IsNullOrWhiteSpace(header) || !header.StartsWith($"{Scheme} ", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(header) || !header.StartsWith($"{SchemeName} ", StringComparison.OrdinalIgnoreCase))
             {
                 return Task.FromResult(AuthenticateResult.NoResult());
             }
 
-            var userName = header.Substring(Scheme.Length).Trim();
+            var userName = header.Substring(SchemeName.Length).Trim();
             if (string.IsNullOrWhiteSpace(userName))
             {
                 userName = "test-user";
             }
 
             var claims = new[] { new Claim(ClaimTypes.Name, userName) };
-            var identity = new ClaimsIdentity(claims, Scheme);
+            var identity = new ClaimsIdentity(claims, SchemeName);
             var principal = new ClaimsPrincipal(identity);
-            var ticket = new AuthenticationTicket(principal, Scheme);
+            var ticket = new AuthenticationTicket(principal, SchemeName);
             return Task.FromResult(AuthenticateResult.Success(ticket));
         }
 

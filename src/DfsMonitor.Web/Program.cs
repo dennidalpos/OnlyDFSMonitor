@@ -208,11 +208,7 @@ internal static class ServiceControlApi
             return Results.Problem(statusCode: StatusCodes.Status501NotImplemented, title: "Service start is unsupported on non-Windows hosts.");
         }
 
-        return ControlServiceWindows(
-            shouldRun: status => status is ServiceControllerStatus.Stopped or ServiceControllerStatus.StopPending,
-            mutate: controller => controller.Start(),
-            target: ServiceControllerStatus.Running,
-            action: "start");
+        return StartWindows();
     }
 
     public static IResult Stop()
@@ -222,6 +218,22 @@ internal static class ServiceControlApi
             return Results.Problem(statusCode: StatusCodes.Status501NotImplemented, title: "Service stop is unsupported on non-Windows hosts.");
         }
 
+        return StopWindows();
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static IResult StartWindows()
+    {
+        return ControlServiceWindows(
+            shouldRun: status => status is ServiceControllerStatus.Stopped or ServiceControllerStatus.StopPending,
+            mutate: controller => controller.Start(),
+            target: ServiceControllerStatus.Running,
+            action: "start");
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static IResult StopWindows()
+    {
         return ControlServiceWindows(
             shouldRun: status => status is ServiceControllerStatus.Running or ServiceControllerStatus.StartPending,
             mutate: controller => controller.Stop(),
