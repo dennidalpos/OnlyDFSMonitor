@@ -186,6 +186,8 @@ app.MapGet("/api/report/latest.csv", async (IStatusStore statusStore, UncConfigS
 
 app.Run();
 
+public partial class Program;
+
 internal static class ServiceControlApi
 {
     public static ServiceControlResult GetStatus()

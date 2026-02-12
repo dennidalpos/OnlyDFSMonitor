@@ -13,6 +13,7 @@
 - PowerShell: `powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1`
 - PowerShell + test: `powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -RunTests`
 - PowerShell interattiva guidata: `powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1`
+- Test suite includes in-memory Web/API integration coverage (JWT auth, collect-now queueing, status/report endpoints) under `tests/DfsMonitor.Tests/WebApiIntegrationTests.cs`.
 
 ## Required ports/firewall
 - WinRM: TCP 5985 (HTTP) / 5986 (HTTPS)
