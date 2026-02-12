@@ -47,6 +47,7 @@ public sealed class DfsNamespaceCollector : IDfsNamespaceCollector
                             PriorityClass = target.PriorityClass,
                             PriorityRank = target.PriorityRank,
                             Ordering = target.Ordering,
+                            State = target.StateRaw,
                             Reachable = reachability.reachable,
                             LatencyMs = reachability.latencyMs,
                             LastError = reachability.error,
@@ -105,12 +106,23 @@ $rows = @()
 foreach($folder in $f) {{
   $targets = Get-DfsnFolderTarget -Path $folder.Path -ErrorAction Continue
   foreach($t in $targets) {{
+    $enabled = if($null -ne $t.State -and [string]$t.State -match 'Online|Enabled|1') {{ 1 }} else {{ 0 }}
+    $ranking = if($null -ne $t.ReferralPriorityRank) {{ [int]$t.ReferralPriorityRank }} else {{ 9999 }}
+    $classWeight = switch -Regex ([string]$t.ReferralPriorityClass) {{
+      'GlobalHigh' {{ 0; break }}
+      'SiteCostHigh' {{ 1; break }}
+      'SiteCostNormal' {{ 2; break }}
+      'GlobalLow' {{ 3; break }}
+      default {{ 4; break }}
+    }}
+
     $rows += [pscustomobject]@{{
       FolderPath = $folder.Path
       TargetPath = $t.TargetPath
       PriorityClass = [string]$t.ReferralPriorityClass
       PriorityRank = [int]$t.ReferralPriorityRank
-      Ordering = [int]$t.State
+      StateRaw = [string]$t.State
+      Ordering = [int](($enabled * 100000) + ((5 - $classWeight) * 1000) - $ranking)
     }}
   }}
 }}
@@ -146,7 +158,8 @@ $rows | ConvertTo-Json -Depth 5
                 Share = targetParts.ElementAtOrDefault(1) ?? string.Empty,
                 PriorityClass = item.TryGetProperty("PriorityClass", out var pc) ? pc.GetString() ?? "Unknown" : "Unknown",
                 PriorityRank = item.TryGetProperty("PriorityRank", out var pr) && pr.TryGetInt32(out var p) ? p : null,
-                Ordering = item.TryGetProperty("Ordering", out var ord) && ord.TryGetInt32(out var o) ? o : null
+                Ordering = item.TryGetProperty("Ordering", out var ord) && ord.TryGetInt32(out var o) ? o : null,
+                StateRaw = item.TryGetProperty("StateRaw", out var stateRaw) ? stateRaw.GetString() : null
             });
         }
 
@@ -167,6 +180,7 @@ $rows | ConvertTo-Json -Depth 5
         public string PriorityClass { get; set; } = "Unknown";
         public int? PriorityRank { get; set; }
         public int? Ordering { get; set; }
+        public string? StateRaw { get; set; }
     }
 
     private static async Task<T> ExecuteWithRetriesAsync<T>(int retries, CancellationToken ct, Func<Task<T>> run)
@@ -235,8 +249,8 @@ public sealed class DfsReplicationCollector : IDfsReplicationCollector
                 var members = await QueryMembersAsync(group, config.Collection.EventLogSampleCount, config.Collectors.EventLog, config.Collection.RequestTimeoutSeconds, ct);
                 result.Members.AddRange(members);
 
-                var memberNames = members.Select(x => x.MemberName).Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-                result.Connections.AddRange(await QueryBacklogAsync(group, memberNames, config.Collection.Thresholds, config.Collection.RequestTimeoutSeconds, ct));
+                var connections = await QueryConnectionsAsync(group, config.Collection.RequestTimeoutSeconds, ct);
+                result.Connections.AddRange(await QueryBacklogAsync(group, members, connections, config.Collection.Thresholds, config.Collection.RequestTimeoutSeconds, ct));
 
                 if (result.Members.Any(m => m.Health == HealthState.Critical) || result.Connections.Any(c => c.BacklogState == "Critical"))
                     result.Health = HealthState.Critical;
@@ -329,15 +343,61 @@ $rows | ConvertTo-Json -Depth 5
         return results;
     }
 
-    private static async Task<List<DfsrConnectionSnapshot>> QueryBacklogAsync(string groupName, List<string> members, ThresholdOptions thresholds, int timeoutSeconds, CancellationToken ct)
+    private static async Task<List<(string Source, string Destination)>> QueryConnectionsAsync(string groupName, int timeoutSeconds, CancellationToken ct)
+    {
+        var script = $@"
+$connections = Get-DfsrConnection -GroupName '{groupName}' -ErrorAction SilentlyContinue
+$connections | ForEach-Object {{
+  [pscustomobject]@{{
+    Source = [string]$_.SourceComputerName
+    Destination = [string]$_.DestinationComputerName
+  }}
+}} | ConvertTo-Json -Depth 4
+";
+
+        var json = await InvokePowerShellJsonAsync(script, timeoutSeconds, ct);
+        if (string.IsNullOrWhiteSpace(json)) return [];
+
+        using var doc = JsonDocument.Parse(json);
+        var rows = doc.RootElement.ValueKind == JsonValueKind.Array
+            ? doc.RootElement.EnumerateArray().ToList()
+            : new List<JsonElement> { doc.RootElement };
+
+        var results = new List<(string Source, string Destination)>();
+        foreach (var row in rows)
+        {
+            var source = row.TryGetProperty("Source", out var src) ? src.GetString() ?? string.Empty : string.Empty;
+            var destination = row.TryGetProperty("Destination", out var dst) ? dst.GetString() ?? string.Empty : string.Empty;
+            if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(destination)) continue;
+            results.Add((source, destination));
+        }
+
+        return results;
+    }
+
+    private static async Task<List<DfsrConnectionSnapshot>> QueryBacklogAsync(string groupName, List<DfsrMemberSnapshot> members, List<(string Source, string Destination)> connections, ThresholdOptions thresholds, int timeoutSeconds, CancellationToken ct)
     {
         if (members.Count < 2) return [];
 
-        var list = new List<DfsrConnectionSnapshot>();
-        for (var i = 0; i < members.Count - 1; i++)
+        var normalizedMembers = members
+            .Select(x => x.MemberName)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (connections.Count == 0)
         {
-            var src = members[i];
-            var dst = members[i + 1];
+            for (var i = 0; i < normalizedMembers.Count - 1; i++)
+            {
+                connections.Add((normalizedMembers[i], normalizedMembers[i + 1]));
+            }
+        }
+
+        var list = new List<DfsrConnectionSnapshot>();
+        foreach (var connection in connections.Distinct())
+        {
+            var src = connection.Source;
+            var dst = connection.Destination;
             var script = $@"
 try {{
   $b = Get-DfsrBacklog -GroupName '{groupName}' -SourceComputerName '{src}' -DestinationComputerName '{dst}' -ErrorAction Stop
