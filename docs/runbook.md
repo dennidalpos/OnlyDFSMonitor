@@ -12,7 +12,7 @@
 ## Build pulita
 - PowerShell: `powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1`
 - PowerShell + test: `powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -RunTests`
-- PowerShell interattiva guidata: `powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1`
+- PowerShell publish release diretto: `powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1` (output `publish/service` + `publish/web`)
 - Gli script build risolvono automaticamente `DfsMonitor.sln` sia da root repo sia eseguendoli dalla cartella `scripts`.
 - Test suite includes in-memory Web/API integration coverage (auth, collect-now queueing, status/report endpoints) under `tests/DfsMonitor.Tests/WebApiIntegrationTests.cs`.
 
@@ -47,6 +47,7 @@
 - Threshold settings: unreachable targets and backlog warn/critical values.
 - Full storage settings: config UNC, status root, cache root, runtime state path, command queue path.
 - DFS-R group controls: autodiscovery toggle + explicit group list.
+- Setup operativo: installazione servizio Windows dalla UI + salvataggio parametri web server (URL, auth mode, JWT).
 
 ## Troubleshooting
 - Check service logs in `logs/service-*.log` and Windows Event Log source `DfsMonitor.Service`.

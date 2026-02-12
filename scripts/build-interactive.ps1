@@ -1,129 +1,32 @@
 param(
-  [string]$DefaultSolution = "DfsMonitor.sln"
+  [string]$Runtime = "win-x64",
+  [string]$OutputRoot = "publish"
 )
 
 $ErrorActionPreference = "Stop"
 
-function Ask-YesNo {
-  param(
-    [string]$Prompt,
-    [bool]$Default = $true
-  )
-
-  $suffix = if ($Default) { "[Y/n]" } else { "[y/N]" }
-  while ($true) {
-    $answer = Read-Host "$Prompt $suffix"
-    if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
-
-    switch ($answer.Trim().ToLowerInvariant()) {
-      "y" { return $true }
-      "yes" { return $true }
-      "n" { return $false }
-      "no" { return $false }
-      default { Write-Host "Valore non valido. Inserisci y/yes o n/no." -ForegroundColor Yellow }
-    }
-  }
-}
-
-function Resolve-SolutionPath {
-  param([string]$SolutionInput)
-
-  if ([System.IO.Path]::IsPathRooted($SolutionInput) -and (Test-Path $SolutionInput)) {
-    return (Resolve-Path $SolutionInput).Path
-  }
-
-  if (Test-Path $SolutionInput) {
-    return (Resolve-Path $SolutionInput).Path
-  }
-
-  $repoRoot = Split-Path -Path $PSScriptRoot -Parent
-  $fromRepoRoot = Join-Path $repoRoot $SolutionInput
-  if (Test-Path $fromRepoRoot) {
-    return (Resolve-Path $fromRepoRoot).Path
-  }
-
-  throw "Soluzione non trovata: $SolutionInput (cwd: $(Get-Location), repoRoot: $repoRoot)"
-}
-
-function Ask-NonEmpty {
-  param(
-    [string]$Prompt,
-    [string]$Default = ""
-  )
-
-  $promptLabel = if ([string]::IsNullOrWhiteSpace($Default)) { $Prompt } else { "{0} [{1}]" -f $Prompt, $Default }
-
-  while ($true) {
-    $value = Read-Host $promptLabel
-    if ([string]::IsNullOrWhiteSpace($value)) {
-      if (-not [string]::IsNullOrWhiteSpace($Default)) { return $Default }
-      Write-Host "Il valore non può essere vuoto." -ForegroundColor Yellow
-      continue
-    }
-
-    return $value.Trim()
-  }
-}
-
 Write-Host "===============================================" -ForegroundColor Cyan
-Write-Host " DFS Monitor - Build interattiva (.NET 8)" -ForegroundColor Cyan
+Write-Host " DFS Monitor - Publish Release" -ForegroundColor Cyan
 Write-Host "===============================================" -ForegroundColor Cyan
 
-$dotnetCmd = Get-Command dotnet -ErrorAction SilentlyContinue
-if (-not $dotnetCmd) {
-  Write-Host "dotnet non trovato nel PATH." -ForegroundColor Red
-  if (Ask-YesNo "Vuoi aprire la pagina ufficiale di installazione .NET?" $true) {
-    Start-Process "https://learn.microsoft.com/dotnet/core/install/windows"
-  }
-  throw "Installare .NET SDK 8.x e rieseguire lo script."
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+  throw "dotnet non trovato nel PATH. Installare .NET SDK 8.x e rieseguire lo script."
 }
 
-$solutionInput = Ask-NonEmpty "Percorso soluzione" $DefaultSolution
-$solution = Resolve-SolutionPath $solutionInput
+$repoRoot = Split-Path -Path $PSScriptRoot -Parent
+$publishRoot = if ([System.IO.Path]::IsPathRooted($OutputRoot)) { $OutputRoot } else { Join-Path $repoRoot $OutputRoot }
+$serviceOutput = Join-Path $publishRoot "service"
+$webOutput = Join-Path $publishRoot "web"
 
-$configuration = Ask-NonEmpty "Configurazione build (Debug/Release)" "Release"
-$runRestore = Ask-YesNo "Eseguire restore?" $true
-$runClean = Ask-YesNo "Eseguire clean?" $true
-$runBuild = Ask-YesNo "Eseguire build?" $true
-$runTests = Ask-YesNo "Eseguire test?" $true
+New-Item -ItemType Directory -Force -Path $serviceOutput | Out-Null
+New-Item -ItemType Directory -Force -Path $webOutput | Out-Null
 
-Write-Host "`nRiepilogo:" -ForegroundColor Cyan
-Write-Host "- Soluzione: $solution"
-Write-Host "- Configurazione: $configuration"
-Write-Host "- Restore: $runRestore"
-Write-Host "- Clean: $runClean"
-Write-Host "- Build: $runBuild"
-Write-Host "- Test: $runTests"
+Write-Host "`n[step] Publish servizio (Release, $Runtime)" -ForegroundColor Green
+& dotnet publish "$repoRoot/src/DfsMonitor.Service/DfsMonitor.Service.csproj" -c Release -r $Runtime --self-contained false -o $serviceOutput
 
-if (-not (Ask-YesNo "Confermi esecuzione?" $true)) {
-  Write-Host "Operazione annullata dall'utente." -ForegroundColor Yellow
-  exit 0
-}
+Write-Host "`n[step] Publish web app (Release)" -ForegroundColor Green
+& dotnet publish "$repoRoot/src/DfsMonitor.Web/DfsMonitor.Web.csproj" -c Release -o $webOutput
 
-if ($runRestore) {
-  Write-Host "`n[step] dotnet restore $solution" -ForegroundColor Green
-  & dotnet restore $solution
-}
-
-if ($runClean) {
-  Write-Host "`n[step] dotnet clean $solution -c $configuration" -ForegroundColor Green
-  & dotnet clean $solution -c $configuration
-}
-
-if ($runBuild) {
-  $buildArgs = @("build", $solution, "-c", $configuration)
-  if ($runRestore) { $buildArgs += "--no-restore" }
-  Write-Host "`n[step] dotnet $($buildArgs -join ' ')" -ForegroundColor Green
-  & dotnet @buildArgs
-}
-
-if ($runTests) {
-  $testArgs = @("test", $solution, "-c", $configuration)
-  if ($runBuild) { $testArgs += "--no-build" }
-  elseif ($runRestore) { $testArgs += "--no-restore" }
-
-  Write-Host "`n[step] dotnet $($testArgs -join ' ')" -ForegroundColor Green
-  & dotnet @testArgs
-}
-
-Write-Host "`nBuild interattiva completata con successo." -ForegroundColor Cyan
+Write-Host "`nPublish completata." -ForegroundColor Cyan
+Write-Host "- Service output: $serviceOutput"
+Write-Host "- Web output: $webOutput"

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Claims;
 using System.Text.Encodings.Web;
 using DfsMonitor.Shared;
@@ -44,6 +45,57 @@ public class WebApiIntegrationTests
 
         var payload = await File.ReadAllTextAsync(queueFiles[0]);
         payload.Should().Contain("test-user");
+    }
+
+
+    [Fact]
+    public async Task InstallOptions_CanBeSavedAndLoaded_WhenAuthorized()
+    {
+        await using var fixture = await TestWebAppFixture.CreateAsync();
+        using var client = fixture.CreateAuthorizedClient();
+
+        var payload = new
+        {
+            serviceName = "DfsMonitor.Service",
+            serviceExePath = @"C:\\DfsMonitor\\DfsMonitor.Service.exe",
+            webUrls = "http://localhost:5055",
+            authMode = "Jwt",
+            jwtIssuer = "issuer",
+            jwtAudience = "aud",
+            jwtSigningKey = "signing-key"
+        };
+
+        var saveResponse = await client.PutAsJsonAsync("/api/service/install/options", payload);
+        saveResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
+
+        var loadResponse = await client.GetAsync("/api/service/install/options");
+        loadResponse.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var loaded = await loadResponse.Content.ReadFromJsonAsync<WebServerSettings>();
+        loaded.Should().NotBeNull();
+        loaded!.WebUrls.Should().Be("http://localhost:5055");
+        loaded.AuthMode.Should().Be("Jwt");
+    }
+
+    [Fact]
+    public async Task InstallService_ReturnsNotImplemented_OnNonWindows()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        await using var fixture = await TestWebAppFixture.CreateAsync();
+        using var client = fixture.CreateAuthorizedClient();
+
+        var response = await client.PostAsJsonAsync("/api/service/install", new
+        {
+            serviceName = "DfsMonitor.Service",
+            serviceExePath = @"C:\\DfsMonitor\\DfsMonitor.Service.exe",
+            displayName = "DFS Monitor Service"
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotImplemented);
     }
 
     [Fact]

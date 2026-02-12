@@ -15,6 +15,12 @@ dotnet build DfsMonitor.sln
 dotnet test DfsMonitor.sln
 ```
 
+## Publish release app
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1
+```
+Crea direttamente i pacchetti release in `publish/service` e `publish/web`.
+
 ## Run locally
 ```bash
 dotnet run --project src/DfsMonitor.Service
@@ -40,7 +46,7 @@ dotnet run --project src/DfsMonitor.Web
 powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1
 powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -RunTests
 
-# Build guidata interattiva (richiede input in console)
+# Publish release diretto (senza prompt)
 powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1
 ```
 
@@ -57,3 +63,9 @@ Run service under domain service account/gMSA with:
 - RW on config and status UNC shares.
 
 See `docs/runbook.md` for full details.
+
+
+## UI Configurazione servizio/web
+Nella pagina `/config` è disponibile una sezione dedicata a:
+- installazione del servizio Windows (nome servizio, display name, percorso exe);
+- salvataggio dei parametri operativi del web server (`ASPNETCORE_URLS`, auth mode, JWT settings).
