@@ -10,10 +10,9 @@
    - `powershell -ExecutionPolicy Bypass -File scripts/set-service-account.ps1 -Account DOMAIN\gmsaDfsMonitor$`
 
 ## Build pulita
-- Bash: `./scripts/clean-build.sh`
-- Bash + test: `RUN_TESTS=1 ./scripts/clean-build.sh`
 - PowerShell: `powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1`
 - PowerShell + test: `powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -RunTests`
+- PowerShell interattiva guidata: `powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1`
 
 ## Required ports/firewall
 - WinRM: TCP 5985 (HTTP) / 5986 (HTTPS)
