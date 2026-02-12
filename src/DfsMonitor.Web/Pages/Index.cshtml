@@ -1,0 +1,6 @@
+<html><head><title>DFS Monitor</title><style>body{font-family:Arial;margin:2rem;}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:.3rem;}</style></head><body>
+<h1>DFS Monitor Dashboard</h1><p><a href="/config">Configuration</a></p><div id="health">Loading...</div>
+<h2>Namespaces</h2><table id="ns"><thead><tr><th>Namespace</th><th>Health</th><th>Folders</th></tr></thead><tbody></tbody></table>
+<script>
+(async()=>{const r=await fetch('/api/status/latest');if(!r.ok){document.getElementById('health').textContent='No status snapshot found';return;}const data=await r.json();document.getElementById('health').textContent=`Overall: ${data.overallHealth} @ ${data.createdAtUtc}`;const b=document.querySelector('#ns tbody');for(const n of data.namespaces){const tr=document.createElement('tr');tr.innerHTML=`<td>${n.namespacePath}</td><td>${n.health}</td><td>${n.folders.length}</td>`;b.appendChild(tr);}})();
+</script></body></html>
