@@ -95,11 +95,8 @@ dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- status
 
 ## 6) Script disponibili
 
-Cartella `scripts/` (solo essenziali):
-- `install-service.ps1`
-- `start-service.ps1`
-- `stop-service.ps1`
-- `uninstall-service.ps1`
+Cartella `scripts/` contiene solo script di build:
+- `build.ps1` (restore + build + test in Release)
 
 ---
 
