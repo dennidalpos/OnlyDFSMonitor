@@ -23,14 +23,14 @@ public sealed class CollectorWorker : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var config = await _store.LoadAsync(fallback.Storage.ConfigPath, () => new MonitorConfiguration(), stoppingToken);
-            if (File.Exists(config.Storage.CommandPath))
-            {
-                _logger.LogInformation("Collect-now command detected");
-                File.Delete(config.Storage.CommandPath);
-            }
-
             try
             {
+                if (File.Exists(config.Storage.CommandPath))
+                {
+                    _logger.LogInformation("Collect-now command detected");
+                    File.Delete(config.Storage.CommandPath);
+                }
+
                 var snapshot = await _engine.CollectAsync(config, stoppingToken);
                 await _store.SaveAsync(config.Storage.SnapshotPath, snapshot, stoppingToken);
                 _logger.LogInformation("Snapshot saved to {Path}", config.Storage.SnapshotPath);

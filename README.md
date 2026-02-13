@@ -1,70 +1,96 @@
 # OnlyDFSMonitor
 
-Applicazione **desktop Windows** per monitoraggio centralizzato DFS Namespace (DFS-N) e DFS Replication (DFS-R), con servizio Windows **opzionale**.
+Applicazione **desktop Windows** per il monitoraggio di DFS Namespace (DFS-N) e DFS Replication (DFS-R), con un servizio Windows **opzionale** per l'esecuzione periodica.
 
-> Obiettivo operativo: l'app deve funzionare anche se il servizio non è installato.
-
----
-
-## 1) Architettura attuale
-
-La soluzione è stata ricostruita in modalità greenfield e contiene solo i componenti necessari:
-
-- `OnlyDFSMonitor.Core`
-  - modelli di configurazione/snapshot;
-  - persistenza JSON locale;
-  - engine di collection;
-  - utility per interrogare/gestire servizio Windows.
-- `OnlyDFSMonitor.Desktop` (WPF)
-  - UI di configurazione;
-  - pulsanti Install/Start/Stop servizio;
-  - `Collect Now` con fallback automatico:
-    - se servizio installato → scrive comando file-based;
-    - se servizio non installato → esegue collection locale immediata.
-- `OnlyDFSMonitor.Service` (Worker Windows)
-  - scheduler periodico;
-  - ascolto file `collect-now`;
-  - salvataggio snapshot JSON.
-- `OnlyDFSMonitor.ServiceControl.Cli`
-  - comandi headless per gestione servizio (`install/start/stop/status`).
-- `OnlyDFSMonitor.Tests`
-  - test unit e integrazione su persistenza/config/collection.
-
-Nessun server HTTP è usato come control-plane principale.
+Il progetto è pensato per funzionare in due modalità:
+- **Desktop-only (senza servizio installato)**: l'operatore avvia raccolte manuali dalla UI.
+- **Desktop + Service**: il servizio esegue raccolte pianificate e gestisce i trigger `collect-now`.
 
 ---
 
-## 2) Comportamento chiave richiesto
+## 1) Panoramica architetturale
 
-### 2.1 App funzionante senza servizio installato
-La UI desktop non dipende dal servizio per eseguire una raccolta:
-- `Collect Now (Auto)` prova prima a rilevare il servizio;
-- se assente, esegue raccolta locale e salva direttamente lo snapshot.
+La soluzione è composta da cinque progetti:
 
-### 2.2 DFS-R groups in auto-discovery
-L'operatore inserisce il/i **namespace DFS-N** in configurazione.
-I gruppi DFS-R vengono recuperati automaticamente dal collector host tramite:
+- `src/OnlyDFSMonitor.Core`
+  - Modelli condivisi (configurazione e snapshot).
+  - Persistenza JSON su filesystem locale.
+  - Engine di collection.
+  - Wrapper per comandi `sc.exe`.
 
-```powershell
-Get-DfsReplicationGroup | Select-Object -ExpandProperty GroupName
-```
+- `src/OnlyDFSMonitor.Desktop` (WPF, `net8.0-windows`)
+  - UI operativa per configurazione e comandi servizio.
+  - Pulsante **Collect Now (Auto)** con fallback locale:
+    - se il servizio è installato: crea il comando file-based;
+    - se non è installato: esegue collection locale immediata.
 
-Se l'auto-discovery non restituisce dati, la raccolta DFS-R viene saltata senza bloccare l'esecuzione generale.
+- `src/OnlyDFSMonitor.Service` (Worker, `net8.0-windows`)
+  - Loop periodico con polling configurabile.
+  - Lettura trigger `collect-now`.
+  - Salvataggio snapshot su file JSON.
+
+- `src/OnlyDFSMonitor.ServiceControl.Cli`
+  - Utility headless per `install/start/stop/status` del servizio.
+
+- `tests/OnlyDFSMonitor.Tests`
+  - Test unitari/integrativi su componenti core.
 
 ---
 
-## 3) Persistenza file
+## 2) Requisiti
 
-Default locali:
+## 2.1 Ambiente di sviluppo
+- Windows 10/11 o Windows Server recente.
+- .NET SDK 8.x installato (`dotnet --info`).
+- PowerShell 7+ consigliato per script (`pwsh`).
+
+## 2.2 Ambiente runtime (operativo)
+- Permessi coerenti con operazioni DFS e gestione servizio.
+- Accesso in scrittura ai percorsi locali di config/status/commands.
+- Se usato il servizio: account con privilegi adeguati in dominio.
+
+---
+
+## 3) Struttura repository
+
+- `DfsMonitor.sln`
+- `src/`
+  - `OnlyDFSMonitor.Core/`
+  - `OnlyDFSMonitor.Desktop/`
+  - `OnlyDFSMonitor.Service/`
+  - `OnlyDFSMonitor.ServiceControl.Cli/`
+- `tests/OnlyDFSMonitor.Tests/`
+- `scripts/`
+  - `build.ps1`
+  - `clean.ps1`
+
+---
+
+## 4) Configurazione e percorsi file
+
+I default applicativi sono definiti in `StorageOptions`:
+
 - Config: `C:\OnlyDFSMonitor\config\config.json`
 - Snapshot: `C:\OnlyDFSMonitor\status\latest.json`
-- Command queue: `C:\OnlyDFSMonitor\commands\collect-now.json`
+- Trigger collect-now: `C:\OnlyDFSMonitor\commands\collect-now.json`
+- UNC opzionale: `\\fileserver\dfs-monitor`
 
-È disponibile anche `OptionalUncRoot` in configurazione per estensioni operative (mirror/condivisione).
+### 4.1 Logica DFS-R
+
+Se `DfsrGroups` non è valorizzato in configurazione, l'engine prova l'auto-discovery locale via PowerShell:
+
+```powershell
+Get-DfsReplicationGroup -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty GroupName
+```
+
+Se non trova gruppi validi, la parte DFS-R viene saltata senza bloccare la raccolta complessiva.
 
 ---
 
-## 4) Build e test
+## 5) Build, clean e test
+
+## 5.1 Workflow manuale con `dotnet`
 
 ```bash
 dotnet restore DfsMonitor.sln
@@ -72,43 +98,99 @@ dotnet build DfsMonitor.sln -c Release
 dotnet test DfsMonitor.sln -c Release
 ```
 
+## 5.2 Script PowerShell
+
+### `scripts/build.ps1`
+Script parametrico per restore/build/test.
+
+Parametri disponibili:
+- `-Configuration` (`Debug` | `Release`, default `Release`)
+- `-SkipTests` (salta test)
+- `-NoRestore` (salta restore)
+
+Esempi:
+
+```powershell
+pwsh ./scripts/build.ps1
+pwsh ./scripts/build.ps1 -Configuration Debug
+pwsh ./scripts/build.ps1 -SkipTests
+pwsh ./scripts/build.ps1 -NoRestore -Configuration Release
+```
+
+### `scripts/clean.ps1`
+Esegue:
+1. `dotnet clean` in `Debug` e `Release` sulla solution;
+2. rimozione ricorsiva cartelle `bin` e `obj` nel repository.
+
+Esempio:
+
+```powershell
+pwsh ./scripts/clean.ps1
+```
+
 ---
 
-## 5) Esecuzione
+## 6) Esecuzione componenti
 
-### Desktop
+## 6.1 Desktop
+
 ```bash
 dotnet run --project src/OnlyDFSMonitor.Desktop
 ```
 
-### Service (debug)
+Funzioni principali UI:
+- salvataggio configurazione;
+- install/start/stop servizio;
+- collect-now automatico (service-aware).
+
+## 6.2 Service (debug locale)
+
 ```bash
 dotnet run --project src/OnlyDFSMonitor.Service
 ```
 
-### CLI servizio
+## 6.3 CLI controllo servizio
+
 ```bash
 dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- status
+dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- start
+dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- stop
 ```
 
 ---
 
-## 6) Script disponibili
+## 7) Flusso operativo consigliato
 
-Cartella `scripts/` contiene solo script di build:
-- `build.ps1` (restore + build + test in Release)
-
----
-
-## 7) Permessi consigliati
-
-- Esecuzione Desktop con utenza locale amministrativa quando si usano operazioni `sc.exe`.
-- Account servizio con permessi DFS/WinRM coerenti con il dominio.
-- ACL di scrittura sui path locali di config/status/commands.
+1. Avviare Desktop e configurare namespace DFS-N.
+2. Salvare configurazione.
+3. Se necessario, installare/avviare il servizio dalla UI o dalla CLI.
+4. Usare **Collect Now (Auto)**:
+   - con servizio installato: enqueue comando su file;
+   - senza servizio: esecuzione locale immediata.
+5. Verificare snapshot generato nel path configurato.
 
 ---
 
-## 8) Stato repository
+## 8) Troubleshooting
 
-Sono stati rimossi file legacy non più necessari (documentazione separata del vecchio impianto e script di build non indispensabili).
-Questo README è la documentazione operativa principale aggiornata.
+- **Messaggio: servizio non installato**
+  - Comportamento atteso: la Desktop app continua in local mode.
+
+- **`sc.exe` restituisce codice errore su start/stop**
+  - Verificare che il servizio esista (`status`) e che il nome sia `OnlyDFSMonitorService`.
+  - Verificare privilegi amministrativi della sessione.
+
+- **Nessun dato DFS-R raccolto**
+  - Verificare disponibilità cmdlet DFS-R sull'host collector.
+  - Verificare permessi e contesto dominio dell'utente/account servizio.
+
+- **File JSON non scritto**
+  - Verificare ACL dei path configurati (`config/status/commands`).
+  - Controllare lock/antivirus sul file target.
+
+---
+
+## 9) Note di manutenzione
+
+- Mantenere `README.md` come documentazione operativa principale del repository.
+- Evitare documenti duplicati non allineati: in caso di aggiornamento processi, aggiornare questa guida come fonte unica.
