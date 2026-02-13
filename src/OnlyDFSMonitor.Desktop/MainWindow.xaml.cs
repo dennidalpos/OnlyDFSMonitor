@@ -69,12 +69,24 @@ public partial class MainWindow : Window
 
     private async void StartService_Click(object sender, RoutedEventArgs e)
     {
+        if (!await IsServiceInstalledSafeAsync())
+        {
+            AppendLog("Service start skipped: OnlyDFSMonitorService is not installed (sc exit code 1060).");
+            return;
+        }
+
         var code = await _serviceManager.RunScAsync("start OnlyDFSMonitorService", CancellationToken.None);
         AppendLog($"Service start exit code: {code}");
     }
 
     private async void StopService_Click(object sender, RoutedEventArgs e)
     {
+        if (!await IsServiceInstalledSafeAsync())
+        {
+            AppendLog("Service stop skipped: OnlyDFSMonitorService is not installed (sc exit code 1060).");
+            return;
+        }
+
         var code = await _serviceManager.RunScAsync("stop OnlyDFSMonitorService", CancellationToken.None);
         AppendLog($"Service stop exit code: {code}");
     }
@@ -84,15 +96,7 @@ public partial class MainWindow : Window
         var config = BuildConfig();
         await SaveAsync();
 
-        var installed = false;
-        try
-        {
-            installed = await _serviceManager.IsServiceInstalledAsync(ServiceName, CancellationToken.None);
-        }
-        catch
-        {
-            installed = false;
-        }
+        var installed = await IsServiceInstalledSafeAsync();
 
         if (installed)
         {
@@ -105,5 +109,17 @@ public partial class MainWindow : Window
         var snapshot = await _engine.CollectAsync(config, CancellationToken.None);
         await _store.SaveAsync(config.Storage.SnapshotPath, snapshot, CancellationToken.None);
         AppendLog($"Local collect-now completed (service not installed). Overall health: {snapshot.OverallHealth}");
+    }
+
+    private async Task<bool> IsServiceInstalledSafeAsync()
+    {
+        try
+        {
+            return await _serviceManager.IsServiceInstalledAsync(ServiceName, CancellationToken.None);
+        }
+        catch
+        {
+            return false;
+        }
     }
 }
