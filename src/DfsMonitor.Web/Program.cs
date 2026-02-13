@@ -7,6 +7,8 @@ using DfsMonitor.Shared;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.Negotiate;
 using Microsoft.IdentityModel.Tokens;
+using System.Diagnostics;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 var authMode = builder.Configuration["Auth:Mode"] ?? "Negotiate";
@@ -40,6 +42,7 @@ else
 
 builder.Services.AddAuthorization();
 builder.Services.AddRazorPages();
+builder.Services.AddSingleton<WebServerSettingsStore>();
 
 builder.Services.AddSingleton(sp =>
 {
@@ -113,6 +116,13 @@ app.MapGet("/api/service/status", async (UncConfigStore configStore, IRuntimeSta
 
 app.MapPost("/api/service/start", () => ServiceControlApi.Start()).RequireAuthorization();
 app.MapPost("/api/service/stop", () => ServiceControlApi.Stop()).RequireAuthorization();
+app.MapGet("/api/service/install/options", (WebServerSettingsStore store) => Results.Ok(store.Load())).RequireAuthorization();
+app.MapPut("/api/service/install/options", (WebServerSettings options, WebServerSettingsStore store) =>
+{
+    store.Save(options);
+    return Results.NoContent();
+}).RequireAuthorization();
+app.MapPost("/api/service/install", (ServiceInstallRequest request) => ServiceControlApi.Install(request)).RequireAuthorization();
 
 app.MapGet("/api/status/latest", async (IStatusStore statusStore, UncConfigStore configStore) =>
 {
@@ -221,6 +231,16 @@ internal static class ServiceControlApi
         return StopWindows();
     }
 
+    public static IResult Install(ServiceInstallRequest request)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return Results.Problem(statusCode: StatusCodes.Status501NotImplemented, title: "Service install is supported only on Windows hosts.");
+        }
+
+        return InstallWindows(request);
+    }
+
     [SupportedOSPlatform("windows")]
     private static IResult StartWindows()
     {
@@ -282,4 +302,118 @@ internal static class ServiceControlApi
             return Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: $"Unexpected error while trying to {action} DfsMonitor.Service.", detail: ex.Message);
         }
     }
+
+    [SupportedOSPlatform("windows")]
+    private static IResult InstallWindows(ServiceInstallRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.ServiceName) || string.IsNullOrWhiteSpace(request.ServiceExePath))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["serviceName"] = ["ServiceName is required."],
+                ["serviceExePath"] = ["ServiceExePath is required."]
+            });
+        }
+
+        if (!File.Exists(request.ServiceExePath))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["serviceExePath"] = ["Executable was not found on disk."]
+            });
+        }
+
+        try
+        {
+            using var existing = new ServiceController(request.ServiceName);
+            _ = existing.Status;
+            return Results.Problem(statusCode: StatusCodes.Status409Conflict, title: $"Service {request.ServiceName} already exists.");
+        }
+        catch (InvalidOperationException)
+        {
+            // Service does not exist.
+        }
+
+        try
+        {
+            ExecuteSc($"create \"{request.ServiceName}\" binPath= \"\\\"{request.ServiceExePath}\\\"\" start= auto DisplayName= \"{request.DisplayName}\"");
+            ExecuteSc($"failure \"{request.ServiceName}\" reset= 86400 actions= restart/5000/restart/15000/restart/30000");
+            ExecuteSc($"start \"{request.ServiceName}\"");
+            return Results.Ok(new { message = $"Service {request.ServiceName} installed and started." });
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem(statusCode: StatusCodes.Status500InternalServerError, title: "Failed to install service.", detail: ex.Message);
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void ExecuteSc(string arguments)
+    {
+        var process = Process.Start(new ProcessStartInfo
+        {
+            FileName = "sc.exe",
+            Arguments = arguments,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        }) ?? throw new InvalidOperationException("Unable to start sc.exe.");
+
+        process.WaitForExit();
+        if (process.ExitCode == 0)
+        {
+            return;
+        }
+
+        var output = process.StandardOutput.ReadToEnd();
+        var error = process.StandardError.ReadToEnd();
+        throw new InvalidOperationException($"sc.exe {arguments} failed with code {process.ExitCode}. {output} {error}".Trim());
+    }
+}
+
+internal sealed class WebServerSettingsStore
+{
+    private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
+    private readonly string _path;
+
+    public WebServerSettingsStore(IHostEnvironment environment)
+    {
+        _path = Path.Combine(environment.ContentRootPath, "webserver-settings.json");
+    }
+
+    public WebServerSettings Load()
+    {
+        if (!File.Exists(_path))
+        {
+            return new WebServerSettings();
+        }
+
+        var json = File.ReadAllText(_path);
+        return JsonSerializer.Deserialize<WebServerSettings>(json, JsonOptions) ?? new WebServerSettings();
+    }
+
+    public void Save(WebServerSettings settings)
+    {
+        var json = JsonSerializer.Serialize(settings, JsonOptions);
+        File.WriteAllText(_path, json);
+    }
+}
+
+public sealed class WebServerSettings
+{
+    public string ServiceName { get; set; } = "DfsMonitor.Service";
+    public string ServiceExePath { get; set; } = @"C:\DfsMonitor\DfsMonitor.Service.exe";
+    public string WebUrls { get; set; } = "http://localhost:5000";
+    public string AuthMode { get; set; } = "Negotiate";
+    public string JwtIssuer { get; set; } = "dfs-monitor";
+    public string JwtAudience { get; set; } = "dfs-monitor-api";
+    public string JwtSigningKey { get; set; } = string.Empty;
+}
+
+public sealed class ServiceInstallRequest
+{
+    public string ServiceName { get; set; } = "DfsMonitor.Service";
+    public string ServiceExePath { get; set; } = @"C:\DfsMonitor\DfsMonitor.Service.exe";
+    public string DisplayName { get; set; } = "DFS Monitor Service";
 }
