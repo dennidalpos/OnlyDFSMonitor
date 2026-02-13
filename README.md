@@ -95,8 +95,9 @@ dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- status
 
 ## 6) Script disponibili
 
-Cartella `scripts/` contiene solo script di build:
-- `build.ps1` (restore + build + test in Release)
+Cartella `scripts/` contiene script di build e clean:
+- `build.ps1` (parametrico: restore/build/test con opzioni `-Configuration`, `-SkipTests`, `-NoRestore`)
+- `clean.ps1` (`dotnet clean` Debug/Release + rimozione directory `bin/obj`)
 
 ---
 
