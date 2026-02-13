@@ -13,7 +13,7 @@
             <Button Width="130" Margin="0,0,8,0" Click="InstallService_Click">Install Service</Button>
             <Button Width="90" Margin="0,0,8,0" Click="StartService_Click">Start</Button>
             <Button Width="90" Margin="0,0,8,0" Click="StopService_Click">Stop</Button>
-            <Button Width="130" Margin="0,0,8,0" Click="CollectNow_Click">Collect Now</Button>
+            <Button Width="170" Margin="0,0,8,0" Click="CollectNow_Click">Collect Now (Auto)</Button>
             <Button Width="150" Click="SaveConfiguration_Click">Save Configuration</Button>
         </StackPanel>
 
@@ -32,9 +32,8 @@
                     <TextBlock Text="UNC root (optional)"/>
                     <TextBox x:Name="UncRootBox" Text="\\fileserver\dfs-monitor" Margin="0,0,0,8"/>
                     <TextBlock Text="DFS Namespaces (one per line)"/>
-                    <TextBox x:Name="NamespacesBox" AcceptsReturn="True" Height="120" Text="\\domain.local\dfs\Public" Margin="0,0,0,8"/>
-                    <TextBlock Text="DFS-R Groups (one per line)"/>
-                    <TextBox x:Name="GroupsBox" AcceptsReturn="True" Height="100" Text="RG-HeadOffice"/>
+                    <TextBox x:Name="NamespacesBox" AcceptsReturn="True" Height="180" Text="\\domain.local\dfs\Public" Margin="0,0,0,8"/>
+                    <TextBlock Text="DFS-R groups are auto-discovered from the collector host (Get-DfsReplicationGroup)." TextWrapping="Wrap"/>
                 </StackPanel>
             </GroupBox>
 

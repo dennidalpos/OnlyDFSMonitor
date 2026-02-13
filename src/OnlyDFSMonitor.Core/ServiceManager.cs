@@ -18,4 +18,7 @@ public sealed class ServiceManager
         await process.WaitForExitAsync(ct);
         return process.ExitCode;
     }
+
+    public async Task<bool> IsServiceInstalledAsync(string serviceName, CancellationToken ct)
+        => await RunScAsync($"query {serviceName}", ct) == 0;
 }
