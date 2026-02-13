@@ -119,6 +119,7 @@ public sealed class DfsrConnectionSnapshot
 {
     public string SourceMember { get; set; } = string.Empty;
     public string DestinationMember { get; set; } = string.Empty;
+    public string? ReplicatedFolder { get; set; }
     public int? BacklogCount { get; set; }
     public string BacklogState { get; set; } = "Unknown";
     public string? Details { get; set; }

@@ -250,7 +250,8 @@ public sealed class DfsReplicationCollector : IDfsReplicationCollector
                 result.Members.AddRange(members);
 
                 var connections = await QueryConnectionsAsync(group, config.Collection.RequestTimeoutSeconds, ct);
-                result.Connections.AddRange(await QueryBacklogAsync(group, members, connections, config.Collection.Thresholds, config.Collection.RequestTimeoutSeconds, ct));
+                var replicatedFolders = await QueryReplicatedFoldersAsync(group, config.Collection.RequestTimeoutSeconds, ct);
+                result.Connections.AddRange(await QueryBacklogAsync(group, members, connections, replicatedFolders, config.Collection.Thresholds, config.Collection.RequestTimeoutSeconds, ct));
 
                 if (result.Members.Any(m => m.Health == HealthState.Critical) || result.Connections.Any(c => c.BacklogState == "Critical"))
                     result.Health = HealthState.Critical;
@@ -375,7 +376,33 @@ $connections | ForEach-Object {{
         return results;
     }
 
-    private static async Task<List<DfsrConnectionSnapshot>> QueryBacklogAsync(string groupName, List<DfsrMemberSnapshot> members, List<(string Source, string Destination)> connections, ThresholdOptions thresholds, int timeoutSeconds, CancellationToken ct)
+    private static async Task<List<string>> QueryReplicatedFoldersAsync(string groupName, int timeoutSeconds, CancellationToken ct)
+    {
+        var script = $@"
+Get-DfsReplicatedFolder -GroupName '{groupName}' -ErrorAction SilentlyContinue |
+  Select-Object -ExpandProperty FolderName |
+  ConvertTo-Json -Depth 4
+";
+
+        var json = await InvokePowerShellJsonAsync(script, timeoutSeconds, ct);
+        if (string.IsNullOrWhiteSpace(json)) return [];
+
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.ValueKind == JsonValueKind.Array)
+        {
+            return doc.RootElement
+                .EnumerateArray()
+                .Select(x => x.GetString() ?? string.Empty)
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        var folder = doc.RootElement.GetString();
+        return string.IsNullOrWhiteSpace(folder) ? [] : [folder];
+    }
+
+    private static async Task<List<DfsrConnectionSnapshot>> QueryBacklogAsync(string groupName, List<DfsrMemberSnapshot> members, List<(string Source, string Destination)> connections, List<string> replicatedFolders, ThresholdOptions thresholds, int timeoutSeconds, CancellationToken ct)
     {
         if (members.Count < 2) return [];
 
@@ -393,49 +420,73 @@ $connections | ForEach-Object {{
             }
         }
 
+        var distinctConnections = connections
+            .DistinctBy(x => $"{x.Source}->{x.Destination}", StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var folders = replicatedFolders.Count == 0 ? new List<string?> { null } : [.. replicatedFolders.Cast<string?>()];
+
         var list = new List<DfsrConnectionSnapshot>();
-        foreach (var connection in connections.Distinct())
+        foreach (var connection in distinctConnections)
         {
             var src = connection.Source;
             var dst = connection.Destination;
-            var script = $@"
+
+            foreach (var folderName in folders)
+            {
+                var backlogResult = await QuerySingleBacklogAsync(groupName, src, dst, folderName, timeoutSeconds, ct);
+                var state = backlogResult.State;
+                if (backlogResult.BacklogCount.HasValue)
+                {
+                    state = backlogResult.BacklogCount.Value >= thresholds.CriticalBacklog ? "Critical" : backlogResult.BacklogCount.Value >= thresholds.WarnBacklog ? "Warn" : "Ok";
+                }
+
+                list.Add(new DfsrConnectionSnapshot
+                {
+                    SourceMember = src,
+                    DestinationMember = dst,
+                    ReplicatedFolder = folderName,
+                    BacklogCount = backlogResult.BacklogCount,
+                    BacklogState = state,
+                    Details = backlogResult.Details
+                });
+            }
+        }
+
+        return list;
+    }
+
+    private static async Task<(int? BacklogCount, string State, string? Details)> QuerySingleBacklogAsync(string groupName, string src, string dst, string? folderName, int timeoutSeconds, CancellationToken ct)
+    {
+        var folderParameter = string.IsNullOrWhiteSpace(folderName)
+            ? string.Empty
+            : $" -FolderName '{folderName.Replace("'", "''")}'";
+
+        var script = $@"
 try {{
-  $b = Get-DfsrBacklog -GroupName '{groupName}' -SourceComputerName '{src}' -DestinationComputerName '{dst}' -ErrorAction Stop
+  $b = Get-DfsrBacklog -GroupName '{groupName}' -SourceComputerName '{src}' -DestinationComputerName '{dst}'{folderParameter} -ErrorAction Stop
   [pscustomobject]@{{ BacklogCount = [int]$b.BacklogFileCount; State='Known'; Details='' }} | ConvertTo-Json -Depth 3
 }} catch {{
   [pscustomobject]@{{ BacklogCount = $null; State='Unknown'; Details=$_.Exception.Message }} | ConvertTo-Json -Depth 3
 }}
 ";
 
-            var json = await InvokePowerShellJsonAsync(script, timeoutSeconds, ct);
-            int? backlog = null;
-            var state = "Unknown";
-            string? details = null;
+        var json = await InvokePowerShellJsonAsync(script, timeoutSeconds, ct);
+        if (string.IsNullOrWhiteSpace(json)) return (null, "Unknown", "No backlog data");
 
-            if (!string.IsNullOrWhiteSpace(json))
-            {
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("BacklogCount", out var bc) && bc.TryGetInt32(out var bcv)) backlog = bcv;
-                state = doc.RootElement.TryGetProperty("State", out var st) ? st.GetString() ?? "Unknown" : "Unknown";
-                details = doc.RootElement.TryGetProperty("Details", out var dt) ? dt.GetString() : null;
-            }
+        using var doc = JsonDocument.Parse(json);
+        int? backlog = null;
+        if (doc.RootElement.TryGetProperty("BacklogCount", out var bc) && bc.TryGetInt32(out var bcv)) backlog = bcv;
 
-            if (backlog.HasValue)
-            {
-                state = backlog.Value >= thresholds.CriticalBacklog ? "Critical" : backlog.Value >= thresholds.WarnBacklog ? "Warn" : "Ok";
-            }
+        var state = doc.RootElement.TryGetProperty("State", out var st) ? st.GetString() ?? "Unknown" : "Unknown";
+        var details = doc.RootElement.TryGetProperty("Details", out var dt) ? dt.GetString() : null;
 
-            list.Add(new DfsrConnectionSnapshot
-            {
-                SourceMember = src,
-                DestinationMember = dst,
-                BacklogCount = backlog,
-                BacklogState = state,
-                Details = details
-            });
+        if (!string.IsNullOrWhiteSpace(folderName) && !string.IsNullOrWhiteSpace(details))
+        {
+            details = $"Folder {folderName}: {details}";
         }
 
-        return list;
+        return (backlog, state, details);
     }
 
     private static async Task<string?> InvokePowerShellJsonAsync(string script, int timeoutSeconds, CancellationToken ct)

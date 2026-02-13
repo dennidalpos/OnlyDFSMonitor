@@ -58,8 +58,9 @@
   - `Get-DfsReplicationGroup`
   - `Get-DfsrMember -GroupName <group>`
   - `Get-DfsrConnection -GroupName <group>`
-  - `Get-DfsrBacklog -GroupName <group> -SourceComputerName <src> -DestinationComputerName <dst>`
+  - `Get-DfsrBacklog -GroupName <group> -SourceComputerName <src> -DestinationComputerName <dst> -FolderName <folder>`
   - `Get-WinEvent -LogName 'DFS Replication' -ComputerName <member> -MaxEvents 20`
 - Backlog note:
-  - Primary mode uses real DFS-R connections (`Get-DfsrConnection`) for source/destination pairs.
+  - Primary mode uses real DFS-R connections (`Get-DfsrConnection`) and, when available, evaluates each replicated folder (`Get-DfsReplicatedFolder`) per connection.
+  - If replicated folder discovery is unavailable, collector falls back to group-level backlog query.
   - If connection discovery fails, collector falls back to adjacency pairing for resilience.

@@ -11,7 +11,7 @@
      - discovers replication groups (`Get-DfsReplicationGroup`) or uses configured groups.
      - gathers members/service state (`Get-DfsrMember`, `Get-Service DFSR`).
      - gathers warning/error events (`Get-WinEvent` configurable sample size).
-     - best-effort backlog (`Get-DfsrBacklog`) with unknown fallback when unavailable.
+     - best-effort backlog (`Get-DfsrBacklog`) su connessioni e replicated folder (`Get-DfsReplicatedFolder`) con fallback unknown quando non disponibile.
    - Writes snapshots to UNC with local pending-sync queue and automatic resync.
 
 2. **Web host (`DfsMonitor.Web`)**
