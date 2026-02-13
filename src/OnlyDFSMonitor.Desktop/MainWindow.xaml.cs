@@ -71,7 +71,7 @@ public partial class MainWindow : Window
     {
         if (!await IsServiceInstalledSafeAsync())
         {
-            AppendLog("Service start skipped: OnlyDFSMonitorService is not installed (sc exit code 1060).");
+            AppendLog("Service start skipped: OnlyDFSMonitorService is not installed.");
             return;
         }
 
@@ -83,7 +83,7 @@ public partial class MainWindow : Window
     {
         if (!await IsServiceInstalledSafeAsync())
         {
-            AppendLog("Service stop skipped: OnlyDFSMonitorService is not installed (sc exit code 1060).");
+            AppendLog("Service stop skipped: OnlyDFSMonitorService is not installed.");
             return;
         }
 
