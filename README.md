@@ -71,4 +71,4 @@ Nella pagina `/config` è disponibile una sezione dedicata a:
 - salvataggio dei parametri operativi del web server (`ASPNETCORE_URLS`, auth mode, JWT settings).
 
 ## Prompt di porting
-- Prompt pronto all'uso: `docs/porting-app-prompt.md`
+- Prompt pronto all'uso (rebuild totale da zero): `docs/porting-app-prompt.md`
