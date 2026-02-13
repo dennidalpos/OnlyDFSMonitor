@@ -1,32 +1,27 @@
 # Architecture
 
-## Components
-1. **Collector service (`DfsMonitor.Service`)**
-   - Periodic scheduler (`CollectionWorker`) with file-queued manual collect-now commands.
-   - DFS-N collector:
-     - discovers folder/targets using DFSN PowerShell cmdlets.
-     - parses target priority class/rank and ordering fields.
-     - validates DNS + SMB reachability with timeout and retries.
-   - DFS-R collector:
-     - discovers replication groups (`Get-DfsReplicationGroup`) or uses configured groups.
-     - gathers members/service state (`Get-DfsrMember`, `Get-Service DFSR`).
-     - gathers warning/error events (`Get-WinEvent` configurable sample size).
-     - best-effort backlog (`Get-DfsrBacklog`) su connessioni e replicated folder (`Get-DfsReplicatedFolder`) con fallback unknown quando non disponibile.
-   - Writes snapshots to UNC with local pending-sync queue and automatic resync.
+## Piano sintetico rebuild totale
+1. **Reset legacy**: rimozione codice web/API, script e test precedenti.
+2. **Nuova base**: creazione solution con Core + Service + Desktop + CLI + Tests.
+3. **Flussi critici**: scheduler periodico, collect-now, persistenza snapshot JSON.
+4. **Consegna operativa**: script PowerShell e documentazione runbook/troubleshooting.
 
-2. **Web host (`DfsMonitor.Web`)**
-   - Same-host API + UI.
-   - Auth-required endpoints for config, status, reports, collect-now, and service control.
+## Rischi principali
+- Vincolo Windows-only per WPF/Service control.
+- Cmdlet DFS richiedono permessi AD/WinRM/DFSR corretti.
+- Condivisioni UNC possono essere intermittenti.
 
-3. **Shared library (`DfsMonitor.Shared`)**
-   - Normalized configuration/snapshot models.
-   - UNC storage with atomic write + versioned backups + file lock.
-   - Runtime state store and file command queue.
+## Rollback
+- rollback git a commit precedente;
+- mantenere backup della cartella `C:\OnlyDFSMonitor` prima del deploy;
+- reinstallazione servizio via script in `scripts/`.
 
-## Data flow
-- Load config from UNC (`config.json`) with local fallback cache.
-- Service checks queued commands (`collect-now-*.json`) then runs collector.
-- Collect in parallel with per-item isolation and retries.
-- Build snapshot and compute global health.
-- Persist locally and to UNC with pending-sync replay when UNC returns.
-- Publish runtime state for UI/API service status.
+## Data & persistence strategy
+- JSON locale come fonte primaria (`config.json`, `latest.json`, `collect-now.json`).
+- UNC opzionale come destinazione secondaria/mirror.
+- Nessuna dipendenza da HTTP server per controllo operativo.
+
+## Component interaction
+- Desktop salva configurazione e crea collect-now command file.
+- Service legge config, processa scheduler/collect-now, produce snapshot.
+- CLI offre fallback headless per gestione servizio.

@@ -1,74 +1,33 @@
-# DFS Monitor (.NET 8)
+# OnlyDFSMonitor (.NET 8, Greenfield Desktop + Windows Service)
 
-Centralized Windows Server 2022 monitoring for DFS Namespaces (DFS-N) and DFS Replication (DFS-R).
+Questo repository è stato ricreato **da zero** in modalità greenfield.
 
-## Projects
-- `src/DfsMonitor.Shared`: shared models, storage, runtime state, command queue.
-- `src/DfsMonitor.Service`: Windows Worker service collector.
-- `src/DfsMonitor.Web`: authenticated API + Razor pages UI.
-- `tests/DfsMonitor.Tests`: unit + integration tests (storage/runtime/queue, orchestrator, Web API in-memory).
+## Scelta framework UI
+**WPF** è stato scelto in modo netto perché:
+- è stabile e nativo su Windows Server 2022 / Windows 10+;
+- supporta facilmente tool amministrativi on-prem;
+- riduce complessità rispetto a MAUI/WinUI 3 per un'app desktop enterprise classica.
 
-## Build
+## Nuova solution structure
+- `src/OnlyDFSMonitor.Core`: modelli dominio, persistenza JSON, engine di collection, controllo servizio.
+- `src/OnlyDFSMonitor.Service`: Windows Worker Service (scheduler + collect-now file trigger + persistenza snapshot).
+- `src/OnlyDFSMonitor.Desktop`: UI WPF per dashboard/config/service control/collect-now.
+- `src/OnlyDFSMonitor.ServiceControl.Cli`: utility CLI per install/start/stop/status del servizio.
+- `tests/OnlyDFSMonitor.Tests`: unit e integration test di base.
+
+## Security model (UI locale)
+- esecuzione consigliata con utenza in gruppo locale amministratori;
+- operazioni servizio demandate a `sc.exe` (richiede privilegi elevati);
+- configurazione su filesystem locale e opzionale mirror UNC.
+
+## Build & test
 ```bash
-dotnet restore
+dotnet restore DfsMonitor.sln
 dotnet build DfsMonitor.sln
 dotnet test DfsMonitor.sln
 ```
 
-## Publish release app
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1
-```
-Crea direttamente i pacchetti release in `publish/service` e `publish/web`.
-
-## Run locally
-```bash
-dotnet run --project src/DfsMonitor.Service
-dotnet run --project src/DfsMonitor.Web
-```
-
-## Implemented API
-- `GET /api/health`
-- `GET/PUT /api/config`
-- `POST /api/collect/now` (queues file-based manual command consumed by service)
-- `GET /api/service/status`
-- `POST /api/service/start`
-- `POST /api/service/stop`
-- `GET /api/status/latest`
-- `GET /api/status/namespaces/{id}`
-- `GET /api/status/dfsr/{id}`
-- `GET /api/report/latest.json`
-- `GET /api/report/latest.csv`
-
-## Script utili
-```powershell
-# Build non-interattiva
-powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1
-powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -RunTests
-
-# Publish release diretto (senza prompt)
-powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1
-```
-
-## Authentication
-Web/API supports two modes:
-- `Negotiate` (default) via `Microsoft.AspNetCore.Authentication.Negotiate`
-- `Jwt` placeholder mode (configurable `Auth:Jwt:*`) for integration with external IdP
-
-## Permissions
-Run service under domain service account/gMSA with:
-- Read on DFS namespace/replication metadata.
-- WinRM/PowerShell remoting rights to DFS member servers where needed.
-- Read access to `DFS Replication` event log remotely.
-- RW on config and status UNC shares.
-
-See `docs/runbook.md` for full details.
-
-
-## UI Configurazione servizio/web
-Nella pagina `/config` è disponibile una sezione dedicata a:
-- installazione del servizio Windows (nome servizio, display name, percorso exe);
-- salvataggio dei parametri operativi del web server (`ASPNETCORE_URLS`, auth mode, JWT settings).
-
-## Prompt di porting
-- Prompt pronto all'uso (rebuild totale da zero): `docs/porting-app-prompt.md`
+## Avvio rapido
+- Desktop: `dotnet run --project src/OnlyDFSMonitor.Desktop`
+- Service (debug): `dotnet run --project src/OnlyDFSMonitor.Service`
+- CLI service control: `dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- status`
