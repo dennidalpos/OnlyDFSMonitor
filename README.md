@@ -1,74 +1,114 @@
-# DFS Monitor (.NET 8)
+# OnlyDFSMonitor
 
-Centralized Windows Server 2022 monitoring for DFS Namespaces (DFS-N) and DFS Replication (DFS-R).
+Applicazione **desktop Windows** per monitoraggio centralizzato DFS Namespace (DFS-N) e DFS Replication (DFS-R), con servizio Windows **opzionale**.
 
-## Projects
-- `src/DfsMonitor.Shared`: shared models, storage, runtime state, command queue.
-- `src/DfsMonitor.Service`: Windows Worker service collector.
-- `src/DfsMonitor.Web`: authenticated API + Razor pages UI.
-- `tests/DfsMonitor.Tests`: unit + integration tests (storage/runtime/queue, orchestrator, Web API in-memory).
+> Obiettivo operativo: l'app deve funzionare anche se il servizio non è installato.
 
-## Build
-```bash
-dotnet restore
-dotnet build DfsMonitor.sln
-dotnet test DfsMonitor.sln
-```
+---
 
-## Publish release app
+## 1) Architettura attuale
+
+La soluzione è stata ricostruita in modalità greenfield e contiene solo i componenti necessari:
+
+- `OnlyDFSMonitor.Core`
+  - modelli di configurazione/snapshot;
+  - persistenza JSON locale;
+  - engine di collection;
+  - utility per interrogare/gestire servizio Windows.
+- `OnlyDFSMonitor.Desktop` (WPF)
+  - UI di configurazione;
+  - pulsanti Install/Start/Stop servizio;
+  - `Collect Now` con fallback automatico:
+    - se servizio installato → scrive comando file-based;
+    - se servizio non installato → esegue collection locale immediata.
+- `OnlyDFSMonitor.Service` (Worker Windows)
+  - scheduler periodico;
+  - ascolto file `collect-now`;
+  - salvataggio snapshot JSON.
+- `OnlyDFSMonitor.ServiceControl.Cli`
+  - comandi headless per gestione servizio (`install/start/stop/status`).
+- `OnlyDFSMonitor.Tests`
+  - test unit e integrazione su persistenza/config/collection.
+
+Nessun server HTTP è usato come control-plane principale.
+
+---
+
+## 2) Comportamento chiave richiesto
+
+### 2.1 App funzionante senza servizio installato
+La UI desktop non dipende dal servizio per eseguire una raccolta:
+- `Collect Now (Auto)` prova prima a rilevare il servizio;
+- se assente, esegue raccolta locale e salva direttamente lo snapshot.
+
+### 2.2 DFS-R groups in auto-discovery
+L'operatore inserisce il/i **namespace DFS-N** in configurazione.
+I gruppi DFS-R vengono recuperati automaticamente dal collector host tramite:
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1
+Get-DfsReplicationGroup | Select-Object -ExpandProperty GroupName
 ```
-Crea direttamente i pacchetti release in `publish/service` e `publish/web`.
 
-## Run locally
+Se l'auto-discovery non restituisce dati, la raccolta DFS-R viene saltata senza bloccare l'esecuzione generale.
+
+---
+
+## 3) Persistenza file
+
+Default locali:
+- Config: `C:\OnlyDFSMonitor\config\config.json`
+- Snapshot: `C:\OnlyDFSMonitor\status\latest.json`
+- Command queue: `C:\OnlyDFSMonitor\commands\collect-now.json`
+
+È disponibile anche `OptionalUncRoot` in configurazione per estensioni operative (mirror/condivisione).
+
+---
+
+## 4) Build e test
+
 ```bash
-dotnet run --project src/DfsMonitor.Service
-dotnet run --project src/DfsMonitor.Web
+dotnet restore DfsMonitor.sln
+dotnet build DfsMonitor.sln -c Release
+dotnet test DfsMonitor.sln -c Release
 ```
 
-## Implemented API
-- `GET /api/health`
-- `GET/PUT /api/config`
-- `POST /api/collect/now` (queues file-based manual command consumed by service)
-- `GET /api/service/status`
-- `POST /api/service/start`
-- `POST /api/service/stop`
-- `GET /api/status/latest`
-- `GET /api/status/namespaces/{id}`
-- `GET /api/status/dfsr/{id}`
-- `GET /api/report/latest.json`
-- `GET /api/report/latest.csv`
+---
 
-## Script utili
-```powershell
-# Build non-interattiva
-powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1
-powershell -ExecutionPolicy Bypass -File scripts/clean-build.ps1 -RunTests
+## 5) Esecuzione
 
-# Publish release diretto (senza prompt)
-powershell -ExecutionPolicy Bypass -File scripts/build-interactive.ps1
+### Desktop
+```bash
+dotnet run --project src/OnlyDFSMonitor.Desktop
 ```
 
-## Authentication
-Web/API supports two modes:
-- `Negotiate` (default) via `Microsoft.AspNetCore.Authentication.Negotiate`
-- `Jwt` placeholder mode (configurable `Auth:Jwt:*`) for integration with external IdP
+### Service (debug)
+```bash
+dotnet run --project src/OnlyDFSMonitor.Service
+```
 
-## Permissions
-Run service under domain service account/gMSA with:
-- Read on DFS namespace/replication metadata.
-- WinRM/PowerShell remoting rights to DFS member servers where needed.
-- Read access to `DFS Replication` event log remotely.
-- RW on config and status UNC shares.
+### CLI servizio
+```bash
+dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- status
+```
 
-See `docs/runbook.md` for full details.
+---
 
+## 6) Script disponibili
 
-## UI Configurazione servizio/web
-Nella pagina `/config` è disponibile una sezione dedicata a:
-- installazione del servizio Windows (nome servizio, display name, percorso exe);
-- salvataggio dei parametri operativi del web server (`ASPNETCORE_URLS`, auth mode, JWT settings).
+Cartella `scripts/` contiene solo script di build:
+- `build.ps1` (restore + build + test in Release)
 
-## Prompt di porting
-- Prompt pronto all'uso (rebuild totale da zero): `docs/porting-app-prompt.md`
+---
+
+## 7) Permessi consigliati
+
+- Esecuzione Desktop con utenza locale amministrativa quando si usano operazioni `sc.exe`.
+- Account servizio con permessi DFS/WinRM coerenti con il dominio.
+- ACL di scrittura sui path locali di config/status/commands.
+
+---
+
+## 8) Stato repository
+
+Sono stati rimossi file legacy non più necessari (documentazione separata del vecchio impianto e script di build non indispensabili).
+Questo README è la documentazione operativa principale aggiornata.
