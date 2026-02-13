@@ -69,3 +69,6 @@ See `docs/runbook.md` for full details.
 Nella pagina `/config` è disponibile una sezione dedicata a:
 - installazione del servizio Windows (nome servizio, display name, percorso exe);
 - salvataggio dei parametri operativi del web server (`ASPNETCORE_URLS`, auth mode, JWT settings).
+
+## Prompt di porting
+- Prompt pronto all'uso: `docs/porting-app-prompt.md`
