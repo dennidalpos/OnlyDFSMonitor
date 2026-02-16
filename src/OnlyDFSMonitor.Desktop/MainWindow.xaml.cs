@@ -91,6 +91,12 @@ public partial class MainWindow : Window
 
     private void AppendLog(string message) => LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
 
+    private void ShowError(string title, Exception ex)
+    {
+        AppendLog($"{title}: {ex.Message}");
+        MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
     private async Task RefreshServiceInfoAsync()
     {
         try
@@ -115,7 +121,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Configuration save failed: {ex.Message}");
+            ShowError("Configuration save failed", ex);
         }
     }
 
@@ -175,7 +181,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Collect-now failed: {ex.Message}");
+            ShowError("Collect-now failed", ex);
         }
     }
 
@@ -200,7 +206,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Configuration import failed: {ex.Message}");
+            ShowError("Configuration import failed", ex);
         }
     }
 
@@ -226,7 +232,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Configuration export failed: {ex.Message}");
+            ShowError("Configuration export failed", ex);
         }
     }
 
@@ -251,7 +257,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Snapshot import failed: {ex.Message}");
+            ShowError("Snapshot import failed", ex);
         }
     }
 
