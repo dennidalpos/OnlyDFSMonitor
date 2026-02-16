@@ -1,7 +1,7 @@
 <Window x:Class="OnlyDFSMonitor.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="OnlyDFSMonitor" Height="560" Width="980">
+        Title="OnlyDFSMonitor" Height="700" Width="1100">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -14,7 +14,9 @@
             <Button Width="90" Margin="0,0,8,0" Click="StartService_Click">Start</Button>
             <Button Width="90" Margin="0,0,8,0" Click="StopService_Click">Stop</Button>
             <Button Width="170" Margin="0,0,8,0" Click="CollectNow_Click">Collect Now (Auto)</Button>
-            <Button Width="150" Click="SaveConfiguration_Click">Save Configuration</Button>
+            <Button Width="150" Margin="0,0,8,0" Click="SaveConfiguration_Click">Save Configuration</Button>
+            <Button Width="130" Margin="0,0,8,0" Click="ImportConfig_Click">Import Config</Button>
+            <Button Width="130" Click="ExportConfig_Click">Export Config</Button>
         </StackPanel>
 
         <Grid Grid.Row="1">
@@ -24,22 +26,58 @@
             </Grid.ColumnDefinitions>
 
             <GroupBox Header="Configuration" Margin="0,0,8,0">
-                <StackPanel Margin="8">
-                    <TextBlock Text="Config path"/>
-                    <TextBox x:Name="ConfigPathBox" Text="C:\OnlyDFSMonitor\config\config.json" Margin="0,0,0,8"/>
-                    <TextBlock Text="Snapshot path"/>
-                    <TextBox x:Name="SnapshotPathBox" Text="C:\OnlyDFSMonitor\status\latest.json" Margin="0,0,0,8"/>
-                    <TextBlock Text="UNC root (optional)"/>
-                    <TextBox x:Name="UncRootBox" Text="\\fileserver\dfs-monitor" Margin="0,0,0,8"/>
-                    <TextBlock Text="DFS Namespaces (one per line)"/>
-                    <TextBox x:Name="NamespacesBox" AcceptsReturn="True" Height="180" Text="\\domain.local\dfs\Public" Margin="0,0,0,8"/>
-                    <TextBlock Text="DFS-R groups are auto-discovered from the collector host (Get-DfsReplicationGroup)." TextWrapping="Wrap"/>
-                </StackPanel>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="8">
+                        <TextBlock Text="Config path"/>
+                        <TextBox x:Name="ConfigPathBox" Text="C:\OnlyDFSMonitor\config\config.json" Margin="0,0,0,8"/>
+                        <TextBlock Text="Snapshot path"/>
+                        <TextBox x:Name="SnapshotPathBox" Text="C:\OnlyDFSMonitor\status\latest.json" Margin="0,0,0,8"/>
+                        <TextBlock Text="Collect-now command path"/>
+                        <TextBox x:Name="CommandPathBox" Text="C:\OnlyDFSMonitor\commands\collect-now.json" Margin="0,0,0,8"/>
+                        <TextBlock Text="UNC root (optional)"/>
+                        <TextBox x:Name="UncRootBox" Text="\\fileserver\dfs-monitor" Margin="0,0,0,8"/>
+
+                        <CheckBox x:Name="AutoDiscoverDfsrGroupsCheckBox"
+                                  Content="Auto-discover DFS-R groups from collector host"
+                                  IsChecked="True"
+                                  Margin="0,0,0,6"
+                                  Checked="AutoDiscoverDfsrGroupsCheckBox_OnChanged"
+                                  Unchecked="AutoDiscoverDfsrGroupsCheckBox_OnChanged"/>
+
+                        <TextBlock Text="Manual DFS-R groups (one per line)"/>
+                        <TextBox x:Name="DfsrGroupsBox" AcceptsReturn="True" Height="70" Margin="0,0,0,8"/>
+
+                        <CheckBox x:Name="IncludeDisabledNamespacesCheckBox"
+                                  Content="Include disabled namespaces during local collect"
+                                  IsChecked="False"
+                                  Margin="0,0,0,6"
+                                  Checked="IncludeDisabledNamespacesCheckBox_OnChanged"
+                                  Unchecked="IncludeDisabledNamespacesCheckBox_OnChanged"/>
+
+                        <TextBlock Text="Namespaces (prefix each line with [x] enabled or [ ] disabled)"/>
+                        <TextBox x:Name="NamespacesBox" AcceptsReturn="True" Height="150" Text="[x] \\domain.local\dfs\Public" Margin="0,0,0,8"/>
+
+                        <Separator Margin="0,4,0,8"/>
+                        <TextBlock Text="Snapshot filters" FontWeight="SemiBold" Margin="0,0,0,6"/>
+                        <WrapPanel>
+                            <CheckBox x:Name="ShowOkCheckBox" Content="OK" IsChecked="True" Margin="0,0,12,0" Checked="SnapshotFilterCheckBox_OnChanged" Unchecked="SnapshotFilterCheckBox_OnChanged"/>
+                            <CheckBox x:Name="ShowWarnCheckBox" Content="Warn" IsChecked="True" Margin="0,0,12,0" Checked="SnapshotFilterCheckBox_OnChanged" Unchecked="SnapshotFilterCheckBox_OnChanged"/>
+                            <CheckBox x:Name="ShowCriticalCheckBox" Content="Critical" IsChecked="True" Margin="0,0,12,0" Checked="SnapshotFilterCheckBox_OnChanged" Unchecked="SnapshotFilterCheckBox_OnChanged"/>
+                            <CheckBox x:Name="ShowUnknownCheckBox" Content="Unknown" IsChecked="True" Checked="SnapshotFilterCheckBox_OnChanged" Unchecked="SnapshotFilterCheckBox_OnChanged"/>
+                        </WrapPanel>
+                        <Button Width="220" Margin="0,8,0,0" Click="ImportSnapshot_Click">Import Snapshot for Filtering</Button>
+                    </StackPanel>
+                </ScrollViewer>
             </GroupBox>
 
-            <GroupBox Header="Status" Grid.Column="1">
-                <TextBox x:Name="LogBox" Margin="8" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
-            </GroupBox>
+            <TabControl Grid.Column="1">
+                <TabItem Header="Status">
+                    <TextBox x:Name="LogBox" Margin="8" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto"/>
+                </TabItem>
+                <TabItem Header="Filtered Snapshot">
+                    <TextBox x:Name="SnapshotViewBox" Margin="8" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" FontFamily="Consolas"/>
+                </TabItem>
+            </TabControl>
         </Grid>
 
         <TextBlock x:Name="FooterText" Grid.Row="2" Margin="0,8,0,0" Text="Ready"/>

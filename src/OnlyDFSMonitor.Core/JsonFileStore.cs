@@ -9,15 +9,55 @@ public sealed class JsonFileStore
     public async Task<T> LoadAsync<T>(string path, Func<T> fallback, CancellationToken ct)
     {
         if (!File.Exists(path)) return fallback();
+
+        try
+        {
+            await using var stream = File.OpenRead(path);
+            var model = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, ct);
+            return model ?? fallback();
+        }
+        catch (JsonException)
+        {
+            return fallback();
+        }
+    }
+
+    public async Task<T> LoadStrictAsync<T>(string path, CancellationToken ct)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("JSON file not found.", path);
+        }
+
         await using var stream = File.OpenRead(path);
         var model = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, ct);
-        return model ?? fallback();
+        if (model is null)
+        {
+            throw new InvalidDataException($"File '{path}' contains empty or invalid JSON payload.");
+        }
+
+        return model;
     }
 
     public async Task SaveAsync<T>(string path, T model, CancellationToken ct)
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? ".");
-        await using var stream = File.Create(path);
-        await JsonSerializer.SerializeAsync(stream, model, JsonOptions, ct);
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var tempPath = $"{path}.{Guid.NewGuid():N}.tmp";
+        await using (var stream = File.Create(tempPath))
+        {
+            await JsonSerializer.SerializeAsync(stream, model, JsonOptions, ct);
+        }
+
+        if (File.Exists(path))
+        {
+            File.Delete(path);
+        }
+
+        File.Move(tempPath, path);
     }
 }
