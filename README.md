@@ -1,196 +1,228 @@
 # OnlyDFSMonitor
 
-Applicazione **desktop Windows** per il monitoraggio di DFS Namespace (DFS-N) e DFS Replication (DFS-R), con un servizio Windows **opzionale** per l'esecuzione periodica.
+OnlyDFSMonitor è una soluzione .NET per monitorare ambienti DFS Namespace (DFS-N) e DFS Replication (DFS-R) in modalità desktop, con supporto opzionale a un servizio Windows per la raccolta periodica.
 
-Il progetto è pensato per funzionare in due modalità:
-- **Desktop-only (senza servizio installato)**: l'operatore avvia raccolte manuali dalla UI.
-- **Desktop + Service**: il servizio esegue raccolte pianificate e gestisce i trigger `collect-now`.
+La repository è organizzata in modo da coprire:
+- configurazione operativa via UI;
+- persistenza JSON di configurazione/snapshot;
+- trigger di raccolta “collect-now” file-based;
+- automazione build/clean/test tramite script PowerShell.
 
----
+## Architettura della soluzione
 
-## 1) Panoramica architetturale
-
-La soluzione è composta da cinque progetti:
+### Progetti principali
 
 - `src/OnlyDFSMonitor.Core`
-  - Modelli condivisi (configurazione e snapshot).
-  - Persistenza JSON su filesystem locale.
-  - Engine di collection.
-  - Wrapper per comandi `sc.exe`.
+  - modelli applicativi (`MonitorConfiguration`, `Snapshot`, `HealthState`);
+  - engine di raccolta (`CollectionEngine`);
+  - persistenza JSON (`JsonFileStore`);
+  - integrazione con `sc.exe` tramite `ServiceManager`.
 
-- `src/OnlyDFSMonitor.Desktop` (WPF, `net8.0-windows`)
-  - UI operativa per configurazione e comandi servizio.
-  - Pulsante **Collect Now (Auto)** con fallback locale:
-    - se il servizio è installato: crea il comando file-based;
-    - se non è installato: esegue collection locale immediata.
+- `src/OnlyDFSMonitor.Desktop`
+  - applicazione WPF per gestione operativa;
+  - salvataggio/import/export configurazione;
+  - import snapshot e filtri visuali basati su checkbox;
+  - comandi di gestione servizio (`install/start/stop`) e collect-now con fallback locale.
 
-- `src/OnlyDFSMonitor.Service` (Worker, `net8.0-windows`)
-  - Loop periodico con polling configurabile.
-  - Lettura trigger `collect-now`.
-  - Salvataggio snapshot su file JSON.
+- `src/OnlyDFSMonitor.Service`
+  - worker background;
+  - lettura configurazione persistita;
+  - gestione trigger `collect-now`;
+  - produzione snapshot periodico.
 
 - `src/OnlyDFSMonitor.ServiceControl.Cli`
-  - Utility headless per `install/start/stop/status` del servizio.
+  - utility CLI per pilotare il servizio (`install`, `start`, `stop`, `status`).
 
 - `tests/OnlyDFSMonitor.Tests`
-  - Test unitari/integrativi su componenti core.
+  - test unitari su engine e persistenza;
+  - test integrazione minimo sul ciclo collect-now.
 
----
+## Requisiti
 
-## 2) Requisiti
+### Sviluppo
+- .NET SDK 8.x (`dotnet --info`).
+- PowerShell 7+ (`pwsh`) consigliato per script.
+- Windows consigliato per esecuzione completa delle parti service/DFS.
 
-## 2.1 Ambiente di sviluppo
-- Windows 10/11 o Windows Server recente.
-- .NET SDK 8.x installato (`dotnet --info`).
-- PowerShell 7+ consigliato per script (`pwsh`).
+### Runtime operativo
+- ACL in scrittura sui path usati da config/snapshot/commands.
+- Permessi coerenti con interrogazione DFS e gestione servizio.
+- In caso di servizio Windows, account con privilegi adeguati.
 
-## 2.2 Ambiente runtime (operativo)
-- Permessi coerenti con operazioni DFS e gestione servizio.
-- Accesso in scrittura ai percorsi locali di config/status/commands.
-- Se usato il servizio: account con privilegi adeguati in dominio.
+## Configurazione applicativa
 
----
+I path principali sono definiti in `StorageOptions`:
+- `ConfigPath`: file JSON con configurazione monitor.
+- `SnapshotPath`: file JSON dell’ultimo snapshot.
+- `CommandPath`: trigger file `collect-now`.
+- `OptionalUncRoot`: UNC opzionale per uso operativo.
 
-## 3) Struttura repository
+Default:
+- `C:\OnlyDFSMonitor\config\config.json`
+- `C:\OnlyDFSMonitor\status\latest.json`
+- `C:\OnlyDFSMonitor\commands\collect-now.json`
+- `\\fileserver\dfs-monitor`
 
-- `DfsMonitor.sln`
-- `src/`
-  - `OnlyDFSMonitor.Core/`
-  - `OnlyDFSMonitor.Desktop/`
-  - `OnlyDFSMonitor.Service/`
-  - `OnlyDFSMonitor.ServiceControl.Cli/`
-- `tests/OnlyDFSMonitor.Tests/`
-- `scripts/`
-  - `build.ps1`
-  - `clean.ps1`
+## Import / Export
 
----
+### Configurazione
 
-## 4) Configurazione e percorsi file
+Dalla UI desktop sono disponibili due flussi espliciti:
+- **Import Config**
+  - apre un file JSON;
+  - valida il payload con deserializzazione strict;
+  - applica i valori importati ai controlli UI.
 
-I default applicativi sono definiti in `StorageOptions`:
+- **Export Config**
+  - serializza la configurazione corrente della UI;
+  - salva in un file scelto dall’operatore.
 
-- Config: `C:\OnlyDFSMonitor\config\config.json`
-- Snapshot: `C:\OnlyDFSMonitor\status\latest.json`
-- Trigger collect-now: `C:\OnlyDFSMonitor\commands\collect-now.json`
-- UNC opzionale: `\\fileserver\dfs-monitor`
+### Snapshot
 
-### 4.1 Logica DFS-R
+- **Import Snapshot for Filtering**
+  - carica uno snapshot JSON;
+  - aggiorna la vista “Filtered Snapshot”;
+  - applica i filtri delle checkbox di stato.
 
-Se `DfsrGroups` non è valorizzato in configurazione, l'engine prova l'auto-discovery locale via PowerShell:
+### Affidabilità I/O JSON
+
+La persistenza usa write atomica:
+1. scrittura su file temporaneo;
+2. sostituzione del file target.
+
+Per la lettura:
+- `LoadAsync`: resiliente, usa fallback su file assente o JSON invalido.
+- `LoadStrictAsync`: rigoroso, genera eccezione su file assente o payload non valido.
+
+## Logica checkbox e filtri (Desktop)
+
+### Checkbox di configurazione
+
+- **Auto-discover DFS-R groups**
+  - checked: i gruppi DFS-R vengono scoperti automaticamente dall’host collector;
+  - unchecked: vengono usati solo i gruppi manuali inseriti nel textbox dedicato.
+
+- **Include disabled namespaces during local collect**
+  - checked: anche namespace marcati `[ ]` vengono inclusi nella raccolta locale;
+  - unchecked: i namespace disabilitati vengono esclusi.
+
+### Parsing namespace con flag enabled/disabled
+
+Il textbox Namespace supporta linee nel formato:
+- `[x] \\domain\dfs\Public` (abilitato)
+- `[ ] \\domain\dfs\Legacy` (disabilitato)
+
+Il parser normalizza righe vuote/spazi e converte in `NamespaceDefinition` coerenti.
+
+### Checkbox filtri stato snapshot
+
+Nella sezione filtri snapshot:
+- `OK`
+- `Warn`
+- `Critical`
+- `Unknown`
+
+Ogni checkbox controlla la visibilità di namespace e backlog DFS-R con lo stato corrispondente nella vista “Filtered Snapshot”.
+
+## DFS-R auto-discovery
+
+Quando la configurazione non contiene gruppi DFS-R manuali, `CollectionEngine` tenta:
+1. `pwsh`;
+2. fallback a `powershell`.
+
+Comando usato:
 
 ```powershell
 Get-DfsReplicationGroup -ErrorAction SilentlyContinue |
-  Select-Object -ExpandProperty GroupName
+  Select-Object -ExpandProperty GroupName |
+  ConvertTo-Json -Depth 4
 ```
 
-Se non trova gruppi validi, la parte DFS-R viene saltata senza bloccare la raccolta complessiva.
+Se il comando fallisce o non produce output valido, la raccolta continua senza bloccare l’intero snapshot.
 
----
+## Build, test e clean
 
-## 5) Build, clean e test
+## Build script (`scripts/build.ps1`)
 
-## 5.1 Workflow manuale con `dotnet`
-
-```bash
-dotnet restore DfsMonitor.sln
-dotnet build DfsMonitor.sln -c Release
-dotnet test DfsMonitor.sln -c Release
-```
-
-## 5.2 Script PowerShell
-
-### `scripts/build.ps1`
-Script parametrico per restore/build/test.
-
-Parametri disponibili:
+Parametri supportati:
 - `-Configuration` (`Debug` | `Release`, default `Release`)
-- `-SkipTests` (salta test)
-- `-NoRestore` (salta restore)
+- `-SkipTests`
+- `-NoRestore`
+- `-NoBuild`
+- `-Framework <TFM>`
+- `-Runtime <RID>`
 
 Esempi:
 
 ```powershell
 pwsh ./scripts/build.ps1
 pwsh ./scripts/build.ps1 -Configuration Debug
-pwsh ./scripts/build.ps1 -SkipTests
-pwsh ./scripts/build.ps1 -NoRestore -Configuration Release
+pwsh ./scripts/build.ps1 -NoRestore -SkipTests
+pwsh ./scripts/build.ps1 -Framework net8.0 -Runtime win-x64
 ```
 
-### `scripts/clean.ps1`
-Esegue:
-1. `dotnet clean` in `Debug` e `Release` sulla solution;
-2. rimozione ricorsiva cartelle `bin` e `obj` nel repository.
+## Clean script (`scripts/clean.ps1`)
 
-Esempio:
+Parametri supportati:
+- `-Configuration` (`Debug` | `Release` | `Both`, default `Both`)
+- `-RemovePackages` (rimuove cache locale `.nuget` nel repo)
+- `-KeepTestResults` (mantiene cartelle `TestResults`)
+
+Lo script esegue:
+1. `dotnet clean` per le configurazioni richieste;
+2. rimozione cartelle build artifacts (`bin`, `obj`, opzionalmente `TestResults`);
+3. rimozione cache locale opzionale.
+
+Esempi:
 
 ```powershell
 pwsh ./scripts/clean.ps1
+pwsh ./scripts/clean.ps1 -Configuration Release
+pwsh ./scripts/clean.ps1 -KeepTestResults
+pwsh ./scripts/clean.ps1 -RemovePackages
 ```
 
----
+## Esecuzione locale
 
-## 6) Esecuzione componenti
-
-## 6.1 Desktop
+### Desktop
 
 ```bash
 dotnet run --project src/OnlyDFSMonitor.Desktop
 ```
 
-Funzioni principali UI:
-- salvataggio configurazione;
-- install/start/stop servizio;
-- collect-now automatico (service-aware).
-
-## 6.2 Service (debug locale)
+### Worker service (modalità debug)
 
 ```bash
 dotnet run --project src/OnlyDFSMonitor.Service
 ```
 
-## 6.3 CLI controllo servizio
+### CLI controllo servizio
 
 ```bash
 dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- status
+dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- install
 dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- start
 dotnet run --project src/OnlyDFSMonitor.ServiceControl.Cli -- stop
 ```
 
----
+## Troubleshooting operativo
 
-## 7) Flusso operativo consigliato
+- **Import config/snapshot fallisce**
+  - verificare formato JSON valido;
+  - verificare permessi lettura del file sorgente.
 
-1. Avviare Desktop e configurare namespace DFS-N.
-2. Salvare configurazione.
-3. Se necessario, installare/avviare il servizio dalla UI o dalla CLI.
-4. Usare **Collect Now (Auto)**:
-   - con servizio installato: enqueue comando su file;
-   - senza servizio: esecuzione locale immediata.
-5. Verificare snapshot generato nel path configurato.
+- **Export o Save config fallisce**
+  - verificare ACL sulla cartella destinazione;
+  - verificare eventuali lock sul file target.
 
----
+- **Collect-now locale non produce snapshot**
+  - verificare path snapshot e command;
+  - verificare che i namespace non siano stati esclusi dal filtro disabled.
 
-## 8) Troubleshooting
+- **Nessun gruppo DFS-R rilevato**
+  - verificare disponibilità cmdlet DFS-R sull’host;
+  - verificare contesto di esecuzione e privilegi.
 
-- **Messaggio: servizio non installato**
-  - Comportamento atteso: la Desktop app continua in local mode.
-
-- **`sc.exe` restituisce codice errore su start/stop**
-  - Verificare che il servizio esista (`status`) e che il nome sia `OnlyDFSMonitorService`.
-  - Verificare privilegi amministrativi della sessione.
-
-- **Nessun dato DFS-R raccolto**
-  - Verificare disponibilità cmdlet DFS-R sull'host collector.
-  - Verificare permessi e contesto dominio dell'utente/account servizio.
-
-- **File JSON non scritto**
-  - Verificare ACL dei path configurati (`config/status/commands`).
-  - Controllare lock/antivirus sul file target.
-
----
-
-## 9) Note di manutenzione
-
-- Mantenere `README.md` come documentazione operativa principale del repository.
-- Evitare documenti duplicati non allineati: in caso di aggiornamento processi, aggiornare questa guida come fonte unica.
+- **Comandi servizio con exit code non zero**
+  - verificare esistenza servizio `OnlyDFSMonitorService`;
+  - eseguire terminale con privilegi amministrativi.

@@ -86,7 +86,17 @@ public sealed class CollectionEngine
     {
         var cmd = "Get-DfsReplicationGroup -ErrorAction SilentlyContinue | Select-Object -ExpandProperty GroupName | ConvertTo-Json -Depth 4";
         var escaped = cmd.Replace("\"", "\\\"");
-        var result = await _runner.RunAsync("powershell", $"-NoProfile -Command \"{escaped}\"", ct);
+
+        (int ExitCode, string StdOut, string StdErr) result;
+        try
+        {
+            result = await _runner.RunAsync("pwsh", $"-NoProfile -Command \"{escaped}\"", ct);
+        }
+        catch
+        {
+            result = await _runner.RunAsync("powershell", $"-NoProfile -Command \"{escaped}\"", ct);
+        }
+
         if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StdOut)) return [];
 
         try
