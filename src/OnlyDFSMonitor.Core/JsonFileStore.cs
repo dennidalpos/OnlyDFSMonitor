@@ -29,8 +29,17 @@ public sealed class JsonFileStore
             throw new FileNotFoundException("JSON file not found.", path);
         }
 
-        await using var stream = File.OpenRead(path);
-        var model = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, ct);
+        T? model;
+        try
+        {
+            await using var stream = File.OpenRead(path);
+            model = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, ct);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidDataException($"File '{path}' contains invalid JSON payload.", ex);
+        }
+
         if (model is null)
         {
             throw new InvalidDataException($"File '{path}' contains empty or invalid JSON payload.");
