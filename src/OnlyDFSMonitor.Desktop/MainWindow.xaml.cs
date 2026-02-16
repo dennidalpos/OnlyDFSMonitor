@@ -77,6 +77,17 @@ public partial class MainWindow : Window
         };
     }
 
+    private string GetServiceBinaryPath()
+    {
+        var path = ServiceBinaryPathBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw new InvalidOperationException("Service executable path is required.");
+        }
+
+        return path;
+    }
+
     private async Task SaveAsync()
     {
         var config = BuildConfig();
@@ -91,20 +102,58 @@ public partial class MainWindow : Window
 
     private void AppendLog(string message) => LogBox.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
 
+    private void ShowError(string title, Exception ex)
+    {
+        AppendLog($"{title}: {ex.Message}");
+        MessageBox.Show(this, ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+    }
+
     private async Task RefreshServiceInfoAsync()
     {
         try
         {
-            var installed = await _serviceManager.IsServiceInstalledAsync(ServiceName, CancellationToken.None);
-            AppendLog(installed
-                ? "Service installed: collect-now can trigger background service or local mode."
+            var status = await _serviceManager.QueryServiceAsync(ServiceName, CancellationToken.None);
+            ServiceStatusText.Text = $"Status: {status.RawStatus}";
+            AppendLog(status.Installed
+                ? $"Service installed. Current state: {status.RawStatus}."
                 : "Service not installed: app will run local collect-now mode.");
         }
-        catch
+        catch (Exception ex)
         {
-            AppendLog("Unable to query service status. Local mode is still available.");
+            ServiceStatusText.Text = "Status: unavailable";
+            AppendLog($"Unable to query service status: {ex.Message}");
         }
     }
+
+    private async Task RunServiceActionAsync(
+        Func<CancellationToken, Task<ScCommandResult>> action,
+        string successMessage,
+        string failureTitle)
+    {
+        try
+        {
+            var result = await action(CancellationToken.None);
+            if (!result.IsSuccess)
+            {
+                throw new InvalidOperationException($"{failureTitle}. sc.exe exit code: {result.ExitCode}. {result.CombinedOutput}");
+            }
+
+            AppendLog(successMessage);
+            if (!string.IsNullOrWhiteSpace(result.CombinedOutput))
+            {
+                AppendLog(result.CombinedOutput);
+            }
+
+            await RefreshServiceInfoAsync();
+        }
+        catch (Exception ex)
+        {
+            ShowError(failureTitle, ex);
+        }
+    }
+
+    private async void RefreshServiceStatus_Click(object sender, RoutedEventArgs e)
+        => await RefreshServiceInfoAsync();
 
     private async void SaveConfiguration_Click(object sender, RoutedEventArgs e)
     {
@@ -115,39 +164,41 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Configuration save failed: {ex.Message}");
+            ShowError("Configuration save failed", ex);
         }
     }
 
     private async void InstallService_Click(object sender, RoutedEventArgs e)
     {
-        var code = await _serviceManager.RunScAsync("create OnlyDFSMonitorService binPath= \"C:\\OnlyDFSMonitor\\OnlyDFSMonitor.Service.exe\" start= auto", CancellationToken.None);
-        AppendLog($"Service install exit code: {code}");
-        await RefreshServiceInfoAsync();
+        var binaryPath = GetServiceBinaryPath();
+        await RunServiceActionAsync(
+            ct => _serviceManager.InstallServiceAsync(ServiceName, binaryPath, autoStart: true, ct),
+            "Service installed successfully.",
+            "Service installation failed");
+    }
+
+    private async void UninstallService_Click(object sender, RoutedEventArgs e)
+    {
+        await RunServiceActionAsync(
+            ct => _serviceManager.UninstallServiceAsync(ServiceName, ct),
+            "Service removed successfully.",
+            "Service removal failed");
     }
 
     private async void StartService_Click(object sender, RoutedEventArgs e)
     {
-        if (!await IsServiceInstalledSafeAsync())
-        {
-            AppendLog("Service start skipped: OnlyDFSMonitorService is not installed.");
-            return;
-        }
-
-        var code = await _serviceManager.RunScAsync("start OnlyDFSMonitorService", CancellationToken.None);
-        AppendLog($"Service start exit code: {code}");
+        await RunServiceActionAsync(
+            ct => _serviceManager.StartServiceAsync(ServiceName, ct),
+            "Service started successfully.",
+            "Service start failed");
     }
 
     private async void StopService_Click(object sender, RoutedEventArgs e)
     {
-        if (!await IsServiceInstalledSafeAsync())
-        {
-            AppendLog("Service stop skipped: OnlyDFSMonitorService is not installed.");
-            return;
-        }
-
-        var code = await _serviceManager.RunScAsync("stop OnlyDFSMonitorService", CancellationToken.None);
-        AppendLog($"Service stop exit code: {code}");
+        await RunServiceActionAsync(
+            ct => _serviceManager.StopServiceAsync(ServiceName, ct),
+            "Service stopped successfully.",
+            "Service stop failed");
     }
 
     private async void CollectNow_Click(object sender, RoutedEventArgs e)
@@ -175,7 +226,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Collect-now failed: {ex.Message}");
+            ShowError("Collect-now failed", ex);
         }
     }
 
@@ -200,7 +251,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Configuration import failed: {ex.Message}");
+            ShowError("Configuration import failed", ex);
         }
     }
 
@@ -226,7 +277,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Configuration export failed: {ex.Message}");
+            ShowError("Configuration export failed", ex);
         }
     }
 
@@ -251,7 +302,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            AppendLog($"Snapshot import failed: {ex.Message}");
+            ShowError("Snapshot import failed", ex);
         }
     }
 

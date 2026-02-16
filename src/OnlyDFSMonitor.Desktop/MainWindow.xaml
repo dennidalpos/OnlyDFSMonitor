@@ -1,7 +1,7 @@
 <Window x:Class="OnlyDFSMonitor.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="OnlyDFSMonitor" Height="700" Width="1100">
+        Title="OnlyDFSMonitor" Height="760" Width="1220">
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -9,15 +9,31 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-            <Button Width="130" Margin="0,0,8,0" Click="InstallService_Click">Install Service</Button>
-            <Button Width="90" Margin="0,0,8,0" Click="StartService_Click">Start</Button>
-            <Button Width="90" Margin="0,0,8,0" Click="StopService_Click">Stop</Button>
-            <Button Width="170" Margin="0,0,8,0" Click="CollectNow_Click">Collect Now (Auto)</Button>
-            <Button Width="150" Margin="0,0,8,0" Click="SaveConfiguration_Click">Save Configuration</Button>
-            <Button Width="130" Margin="0,0,8,0" Click="ImportConfig_Click">Import Config</Button>
-            <Button Width="130" Click="ExportConfig_Click">Export Config</Button>
-        </StackPanel>
+        <GroupBox Header="Windows Service" Margin="0,0,0,8">
+            <Grid Margin="8">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0" Text="Service EXE path"/>
+                <TextBox x:Name="ServiceBinaryPathBox" Grid.Row="0" Grid.Column="1" Margin="0,0,8,0" Text="C:\OnlyDFSMonitor\OnlyDFSMonitor.Service.exe"/>
+                <TextBlock x:Name="ServiceStatusText" Grid.Row="0" Grid.Column="2" VerticalAlignment="Center" Text="Status: checking..." FontWeight="SemiBold"/>
+
+                <WrapPanel Grid.Row="1" Grid.ColumnSpan="3" Margin="0,8,0,0">
+                    <Button Width="120" Margin="0,0,8,0" Click="InstallService_Click">Install</Button>
+                    <Button Width="120" Margin="0,0,8,0" Click="UninstallService_Click">Uninstall</Button>
+                    <Button Width="100" Margin="0,0,8,0" Click="StartService_Click">Start</Button>
+                    <Button Width="100" Margin="0,0,8,0" Click="StopService_Click">Stop</Button>
+                    <Button Width="160" Click="RefreshServiceStatus_Click">Refresh service status</Button>
+                </WrapPanel>
+            </Grid>
+        </GroupBox>
 
         <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
@@ -28,6 +44,13 @@
             <GroupBox Header="Configuration" Margin="0,0,8,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="8">
+                        <WrapPanel Margin="0,0,0,8">
+                            <Button Width="170" Margin="0,0,8,0" Click="CollectNow_Click">Collect Now (Auto)</Button>
+                            <Button Width="150" Margin="0,0,8,0" Click="SaveConfiguration_Click">Save Configuration</Button>
+                            <Button Width="130" Margin="0,0,8,0" Click="ImportConfig_Click">Import Config</Button>
+                            <Button Width="130" Click="ExportConfig_Click">Export Config</Button>
+                        </WrapPanel>
+
                         <TextBlock Text="Config path"/>
                         <TextBox x:Name="ConfigPathBox" Text="C:\OnlyDFSMonitor\config\config.json" Margin="0,0,0,8"/>
                         <TextBlock Text="Snapshot path"/>
